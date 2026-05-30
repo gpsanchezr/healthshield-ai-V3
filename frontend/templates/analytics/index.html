@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+{% block title %}Analítica Clínica — HealthShield AI{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h3 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>Centro de Analítica Clínica</h3>
+    <small class="text-muted">Estadística descriptiva · Correlaciones · Segmentación · Tendencias · Heatmaps</small>
+  </div>
+  <span class="badge bg-primary px-3 py-2">Analista / Administrador</span>
+</div>
+
+<!-- ── ESTADÍSTICA DESCRIPTIVA ───────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-bold"><i class="bi bi-calculator me-2 text-primary"></i>Estadística Descriptiva</span>
+    <div class="d-flex gap-2 align-items-center">
+      <select id="campoEstadistica" class="form-select form-select-sm" style="width:200px" onchange="loadEstadistica()">
+        <option value="glucosa">Glucosa (mg/dL)</option>
+        <option value="imc">IMC</option>
+        <option value="colesterol">Colesterol (mg/dL)</option>
+        <option value="presion_sistolica">Presión Sistólica (mmHg)</option>
+        <option value="temperatura">Temperatura (°C)</option>
+        <option value="frecuencia_cardiaca">Frecuencia Cardíaca (bpm)</option>
+        <option value="saturacion_oxigeno">Saturación O₂ (%)</option>
+      </select>
+    </div>
+  </div>
+  <div class="card-body">
+    <div id="estadisticaGrid" class="row g-3">
+      <div class="col-12 text-center text-muted py-3"><div class="spinner-border spinner-border-sm"></div> Cargando...</div>
+    </div>
+    <!-- Gráfica de distribución del campo -->
+    <div class="row mt-4">
+      <div class="col-md-8 offset-md-2">
+        <canvas id="distribucionChart" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SEGMENTACIÓN ──────────────────────────────────────────────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-pie-chart me-2 text-primary"></i>Segmentación por Riesgo
+      </div>
+      <div class="card-body">
+        <canvas id="riesgoSegChart" height="230"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-gender-ambiguous me-2 text-primary"></i>Segmentación por Sexo
+      </div>
+      <div class="card-body">
+        <canvas id="sexoSegChart" height="230"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-person-bounding-box me-2 text-primary"></i>Segmentación por IMC
+      </div>
+      <div class="card-body">
+        <canvas id="imcSegChart" height="230"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-bicycle me-2 text-primary"></i>Segmentación por Actividad Física
+      </div>
+      <div class="card-body">
+        <canvas id="actividadSegChart" height="230"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── HEATMAP DE CORRELACIÓN (Requerimiento obligatorio del reto) ────────── -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-bold"><i class="bi bi-grid-3x3 me-2 text-primary"></i>Heatmap de Correlación Clínica — Coeficiente de Pearson</span>
+    <span class="badge bg-info text-dark">Coeficiente de Pearson</span>
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Los valores van de <span class="badge bg-danger">-1.0</span> (correlación negativa total) a
+      <span class="badge bg-success">+1.0</span> (correlación positiva total).
+      <span class="badge bg-secondary">~0.0</span> indica ausencia de correlación lineal.
+    </p>
+    <div id="heatmapContainer" style="overflow-x:auto;">
+      <div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm me-2"></div>Calculando correlaciones...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── TENDENCIA CLÍNICA POR MES ─────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-bold"><i class="bi bi-graph-up me-2 text-primary"></i>Tendencia Clínica Mensual</span>
+    <select id="campoTendencia" class="form-select form-select-sm" style="width:200px" onchange="loadTendencia()">
+      <option value="glucosa">Glucosa</option>
+      <option value="imc">IMC</option>
+      <option value="colesterol">Colesterol</option>
+      <option value="presion_sistolica">Presión Sistólica</option>
+      <option value="saturacion_oxigeno">Saturación O₂</option>
+      <option value="frecuencia_cardiaca">Frecuencia Cardíaca</option>
+    </select>
+  </div>
+  <div class="card-body"><canvas id="tendenciaChart" height="170"></canvas></div>
+</div>
+
+<!-- ── TOP DIAGNÓSTICOS Y TABLA RESUMEN ──────────────────────────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-md-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-bar-chart-steps me-2 text-primary"></i>Distribución por Diagnóstico
+      </div>
+      <div class="card-body"><canvas id="diagSegChart" height="280"></canvas></div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-table me-2 text-primary"></i>Tabla Resumen Clínica por Nivel de Riesgo
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="riesgoTable">
+            <thead class="table-primary">
+              <tr><th>Nivel de Riesgo</th><th>Pacientes</th><th>IMC Prom.</th><th>Glucosa Prom.</th><th>%</th></tr>
+            </thead>
+            <tbody id="riesgoTableBody"><tr><td colspan="5" class="text-center text-muted py-3">Cargando...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let distribucionChart, tendenciaChart;
+
+// ── Estadística Descriptiva ────────────────────────────────────────────────
+async function loadEstadistica() {
+  const campo = document.getElementById('campoEstadistica').value;
+  try {
+    const r = await fetch(`/api/analytics/estadistica/?campo=${campo}`, {headers: authHeaders()});
+    const d = await r.json();
+    if (d.error) { document.getElementById('estadisticaGrid').innerHTML = `<div class="col-12 alert alert-warning">${d.error}</div>`; return; }
+
+    document.getElementById('estadisticaGrid').innerHTML = `
+      <div class="col-6 col-md-2"><div class="card border-0 bg-primary bg-opacity-10 text-center p-3 rounded-3">
+        <h4 class="fw-bold text-primary mb-0">${d.media}</h4><small class="text-muted">Media</small></div></div>
+      <div class="col-6 col-md-2"><div class="card border-0 bg-success bg-opacity-10 text-center p-3 rounded-3">
+        <h4 class="fw-bold text-success mb-0">${d.mediana}</h4><small class="text-muted">Mediana</small></div></div>
+      <div class="col-6 col-md-2"><div class="card border-0 bg-warning bg-opacity-10 text-center p-3 rounded-3">
+        <h4 class="fw-bold text-warning mb-0">${d.moda}</h4><small class="text-muted">Moda</small></div></div>
+      <div class="col-6 col-md-2"><div class="card border-0 bg-danger bg-opacity-10 text-center p-3 rounded-3">
+        <h4 class="fw-bold text-danger mb-0">${d.desv_std}</h4><small class="text-muted">Desv. Estándar</small></div></div>
+      <div class="col-6 col-md-2"><div class="card border-0 bg-info bg-opacity-10 text-center p-3 rounded-3">
+        <h4 class="fw-bold text-info mb-0">${d.maximo}</h4><small class="text-muted">Máximo</small></div></div>
+      <div class="col-6 col-md-2"><div class="card border-0 bg-secondary bg-opacity-10 text-center p-3 rounded-3">
+        <h4 class="fw-bold text-secondary mb-0">${d.minimo}</h4><small class="text-muted">Mínimo</small></div></div>
+      <div class="col-12 col-md-3"><div class="d-flex justify-content-between align-items-center p-3 bg-light rounded-3">
+        <div><small class="text-muted d-block">Percentil 25</small><strong>${d.percentil_25}</strong></div>
+        <div class="text-center"><small class="text-muted d-block">Rango IQR</small><strong class="text-primary">${d.rango_iqr}</strong></div>
+        <div><small class="text-muted d-block">Percentil 75</small><strong>${d.percentil_75}</strong></div>
+      </div></div>
+      <div class="col-6 col-md-2 offset-md-7 text-end"><div class="p-3 bg-dark bg-opacity-5 rounded-3 text-center">
+        <h5 class="fw-bold mb-0">${d.n?.toLocaleString()}</h5><small class="text-muted">Total registros</small></div></div>
+    `;
+
+    // Distribution approximation chart (boxplot simulation with bar)
+    const labels = ['Mínimo', 'P25', 'Mediana', 'Media', 'P75', 'Máximo'];
+    const values = [d.minimo, d.percentil_25, d.mediana, d.media, d.percentil_75, d.maximo];
+    if (distribucionChart) distribucionChart.destroy();
+    distribucionChart = new Chart(document.getElementById('distribucionChart'), {
+      type: 'bar',
+      data: { labels, datasets: [{ label: `Distribución de ${campo}`, data: values,
+        backgroundColor: ['#94a3b8','#60a5fa','#34d399','#f59e0b','#a78bfa','#f87171'],
+        borderRadius: 6 }] },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,.05)' } } } }
+    });
+  } catch(e) { console.error(e); }
+}
+
+// ── Heatmap de Correlación ─────────────────────────────────────────────────
+async function loadHeatmap() {
+  try {
+    const r = await fetch('/api/analytics/correlacion/', {headers: authHeaders()});
+    const d = await r.json();
+    if (!d.variables || !d.matriz) { document.getElementById('heatmapContainer').innerHTML = '<p class="text-muted text-center">Datos insuficientes para calcular correlaciones.</p>'; return; }
+
+    const vars = d.variables;
+    const mat  = d.matriz;
+    const n    = vars.length;
+
+    // Color mapping for Pearson: -1 → red, 0 → white, +1 → green
+    function corrColor(v) {
+      if (isNaN(v)) return '#f8f9fa';
+      const abs = Math.abs(v);
+      const r = v < 0 ? Math.round(200 + 55*abs) : 220;
+      const g = v > 0 ? Math.round(200 + 55*abs) : 220;
+      const b = 220;
+      const alpha = 0.15 + 0.75*abs;
+      if (v > 0) return `rgba(34,197,94,${alpha})`;
+      if (v < 0) return `rgba(239,68,68,${alpha})`;
+      return 'rgba(248,250,252,0.8)';
+    }
+
+    // Label mapping for readability
+    const labelMap = {
+      imc: 'IMC', glucosa: 'Glucosa', colesterol: 'Colesterol',
+      presion_sistolica: 'Presión Sist.', presion_diastolica: 'Presión Diast.',
+      frecuencia_cardiaca: 'Frec. Cardíaca', saturacion_oxigeno: 'Sat. O₂',
+      temperatura: 'Temperatura', edad: 'Edad', peso: 'Peso', altura: 'Altura',
+    };
+    const shortLabels = vars.map(v => labelMap[v] || v);
+
+    let html = `<table style="border-collapse:collapse;font-size:.78rem;width:100%;">`;
+    // Header row
+    html += `<thead><tr><th style="padding:.4rem .6rem;background:#0d2257;color:white;border-radius:.25rem 0 0 0;">Variable</th>`;
+    shortLabels.forEach(l => {
+      html += `<th style="padding:.4rem .3rem;background:#0d2257;color:white;text-align:center;writing-mode:vertical-lr;transform:rotate(180deg);height:80px;font-size:.7rem;">${l}</th>`;
+    });
+    html += `</tr></thead><tbody>`;
+
+    // Data rows
+    vars.forEach((varRow, i) => {
+      html += `<tr><td style="padding:.4rem .7rem;font-weight:600;white-space:nowrap;background:#f8fafc;border-bottom:1px solid #e2e8f0;">${shortLabels[i]}</td>`;
+      vars.forEach((varCol, j) => {
+        const val = mat[i] ? mat[i][j] : null;
+        const num = typeof val === 'number' ? val.toFixed(2) : '—';
+        const bg = corrColor(typeof val === 'number' ? val : 0);
+        const textColor = Math.abs(val||0) > 0.5 ? 'white' : '#1a202c';
+        const isSelf = i === j;
+        html += `<td style="padding:.35rem .3rem;text-align:center;background:${isSelf?'#0d2257':bg};color:${isSelf?'white':textColor};border:1px solid rgba(0,0,0,.06);font-weight:${Math.abs(val||0)>0.3?'700':'400'};">${isSelf?'1.00':num}</td>`;
+      });
+      html += `</tr>`;
+    });
+    html += `</tbody></table>`;
+    document.getElementById('heatmapContainer').innerHTML = html;
+  } catch(e) {
+    document.getElementById('heatmapContainer').innerHTML = '<p class="text-muted text-center py-3"><i class="bi bi-info-circle me-2"></i>Ejecuta el ETL primero para calcular correlaciones.</p>';
+  }
+}
+
+// ── Segmentaciones ─────────────────────────────────────────────────────────
+async function loadSegmentaciones() {
+  // Riesgo
+  try {
+    const r = await fetch('/api/analytics/segmentacion/?por=riesgo', {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos || [];
+    const total = datos.reduce((s,x)=>s+x.total,0);
+
+    // Build table
+    let rows = datos.map(x => {
+      const pct = total ? (x.total/total*100).toFixed(1) : 0;
+      const badge = {Crítico:'danger',Alto:'warning',Medio:'info',Bajo:'success'}[x.riesgo_enfermedad]||'secondary';
+      return `<tr><td><span class="badge bg-${badge}">${x.riesgo_enfermedad||'N/A'}</span></td>
+        <td><strong>${x.total?.toLocaleString()}</strong></td>
+        <td>${(x.avg_imc||0).toFixed(1)}</td>
+        <td>${(x.avg_glucosa||0).toFixed(1)}</td>
+        <td><div class="progress" style="height:14px"><div class="progress-bar bg-${badge}" style="width:${pct}%"></div></div>
+          <small>${pct}%</small></td></tr>`;
+    }).join('');
+    document.getElementById('riesgoTableBody').innerHTML = rows || '<tr><td colspan="5" class="text-muted text-center">Sin datos</td></tr>';
+
+    new Chart(document.getElementById('riesgoSegChart'), {
+      type: 'doughnut',
+      data: { labels: datos.map(x=>x.riesgo_enfermedad), datasets: [{
+        data: datos.map(x=>x.total),
+        backgroundColor: ['#22c55e','#0ea5e9','#f59e0b','#ef4444'], borderWidth:0, hoverOffset:8
+      }] },
+      options: { cutout:'70%', plugins: { legend: { position:'bottom', labels:{padding:14,font:{size:12}} } } }
+    });
+  } catch(e) {}
+
+  // Sexo
+  try {
+    const r = await fetch('/api/analytics/segmentacion/?por=sexo', {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos||[];
+    new Chart(document.getElementById('sexoSegChart'), {
+      type: 'doughnut',
+      data: { labels: datos.map(x=>x['paciente__sexo']==='F'?'♀ Femenino':'♂ Masculino'),
+        datasets: [{ data: datos.map(x=>x.total), backgroundColor:['#ec4899','#3b82f6'], borderWidth:0, hoverOffset:8 }] },
+      options: { cutout:'70%', plugins: { legend: { position:'bottom', labels:{padding:14,font:{size:12}} } } }
+    });
+  } catch(e) {}
+
+  // IMC segmentación
+  try {
+    const r = await fetch('/api/analytics/segmentacion/?por=imc', {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos||[];
+    new Chart(document.getElementById('imcSegChart'), {
+      type: 'bar',
+      data: { labels: datos.map(x=>x.clasificacion_imc),
+        datasets: [{ label:'Pacientes', data: datos.map(x=>x.total),
+          backgroundColor:['#60a5fa','#34d399','#fbbf24','#f87171'], borderRadius:6 }] },
+      options: { plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+    });
+  } catch(e) {}
+
+  // Actividad física
+  try {
+    const r = await fetch('/api/analytics/segmentacion/?por=actividad', {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos||[];
+    new Chart(document.getElementById('actividadSegChart'), {
+      type: 'bar',
+      data: { labels: datos.map(x=>x.actividad_fisica||'No registrado'),
+        datasets: [{ label:'Pacientes', data: datos.map(x=>x.total),
+          backgroundColor:['#ef4444','#f59e0b','#06b6d4','#22c55e'], borderRadius:6 }] },
+      options: { plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+    });
+  } catch(e) {}
+
+  // Diagnóstico
+  try {
+    const r = await fetch('/api/analytics/segmentacion/?por=diagnostico', {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos||[];
+    new Chart(document.getElementById('diagSegChart'), {
+      type: 'bar',
+      data: { labels: datos.map(x=>x.diagnostico_preliminar||'Sin diagnóstico'),
+        datasets: [{ label:'Pacientes', data: datos.map(x=>x.total),
+          backgroundColor: datos.map((_,i)=>`hsl(${i*42},70%,55%)`), borderRadius:6 }] },
+      options: { indexAxis:'y', plugins:{legend:{display:false}},
+        scales:{x:{beginAtZero:true, grid:{color:'rgba(0,0,0,.05)'}}} }
+    });
+  } catch(e) {}
+}
+
+// ── Tendencia Clínica ──────────────────────────────────────────────────────
+async function loadTendencia() {
+  const campo = document.getElementById('campoTendencia').value;
+  try {
+    const r = await fetch(`/api/analytics/tendencia-clinica/?campo=${campo}`, {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos||[];
+    if (tendenciaChart) tendenciaChart.destroy();
+    tendenciaChart = new Chart(document.getElementById('tendenciaChart'), {
+      type: 'line',
+      data: {
+        labels: datos.map(x=>x.mes_label||x.mes),
+        datasets: [
+          { label:`Promedio ${campo}`, data: datos.map(x=>x.promedio),
+            borderColor:'#2563eb', backgroundColor:'rgba(37,99,235,.08)', fill:true, tension:.4, pointRadius:4 },
+          { label:'Máximo', data: datos.map(x=>x.maximo),
+            borderColor:'#ef4444', borderDash:[5,5], tension:.4, pointRadius:2 },
+          { label:'Mínimo', data: datos.map(x=>x.minimo),
+            borderColor:'#22c55e', borderDash:[5,5], tension:.4, pointRadius:2 },
+        ]
+      },
+      options: { plugins:{legend:{position:'top'}}, scales:{y:{beginAtZero:false, grid:{color:'rgba(0,0,0,.05)'}}} }
+    });
+  } catch(e) {}
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+loadEstadistica();
+loadHeatmap();
+loadSegmentaciones();
+loadTendencia();
+</script>
+{% endblock %}

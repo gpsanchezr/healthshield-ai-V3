@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Pacientes — HealthShield AI{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <h3 class="fw-bold mb-0"><i class="bi bi-people me-2 text-primary"></i>Pacientes</h3>
+  <div class="d-flex gap-2 flex-wrap">
+    <!-- FIX: Search by name AND cedula -->
+    <div class="input-group shadow-sm" style="width:280px">
+      <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+      <input type="text" id="searchInput" class="form-control border-start-0"
+             placeholder="Nombre, apellido o cédula..." oninput="buscar(this.value)">
+    </div>
+    <select id="riesgoFilter" class="form-select shadow-sm" style="width:150px" onchange="loadPacientes()">
+      <option value="">Todos los riesgos</option>
+      <option value="Crítico">🚨 Crítico</option>
+      <option value="Alto">⚠️ Alto</option>
+      <option value="Medio">🔵 Medio</option>
+      <option value="Bajo">✅ Bajo</option>
+    </select>
+    <select id="sexoFilter" class="form-select shadow-sm" style="width:130px" onchange="loadPacientes()">
+      <option value="">Todos</option>
+      <option value="M">♂ Masculino</option>
+      <option value="F">♀ Femenino</option>
+    </select>
+  </div>
+</div>
+
+<!-- Stats bar -->
+<div class="row g-2 mb-3" id="statsBar"></div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-primary">
+          <tr>
+            <th class="ps-3">Cédula</th>
+            <th>Paciente</th>
+            <th>Edad</th>
+            <th>Sexo</th>
+            <th>IMC</th>
+            <th>Glucosa</th>
+            <th>Presión</th>
+            <th>Riesgo</th>
+            <th>Diagnóstico</th>
+            <th>Hábitos</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="pacientesBody">
+          <tr><td colspan="11" class="text-center py-4 text-muted">
+            <div class="spinner-border spinner-border-sm me-2"></div>Cargando pacientes...
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <!-- Pagination -->
+  <div class="card-footer bg-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <small class="text-muted">
+      Mostrando <strong id="fromCount">—</strong>–<strong id="toCount">—</strong>
+      de <strong id="totalPacientes">—</strong> registros
+    </small>
+    <nav><ul class="pagination pagination-sm mb-0 gap-1" id="pagination"></ul></nav>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let searchTimeout;
+const RISK_COLOR = { Crítico:'danger', Alto:'warning', Medio:'info', Bajo:'success' };
+
+async function loadPacientes(page=1) {
+  currentPage = page;
+  const riesgo = document.getElementById('riesgoFilter').value;
+  const sexo   = document.getElementById('sexoFilter').value;
+  const search = document.getElementById('searchInput').value;
+
+  let url = `/api/pacientes/?page=${page}&page_size=25`;
+  if (riesgo) url += `&riesgo_enfermedad=${encodeURIComponent(riesgo)}`;
+  if (sexo)   url += `&sexo=${encodeURIComponent(sexo)}`;
+  if (search) url += `&search=${encodeURIComponent(search)}`;
+
+  const tbody = document.getElementById('pacientesBody');
+  tbody.innerHTML = '<tr><td colspan="11" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Cargando...</td></tr>';
+
+  try {
+    const r = await fetch(url, {headers: authHeaders()});
+    if (!r.ok) return;
+    const d = await r.json();
+    const items = d.results || [];
+    const total = d.count || 0;
+    const pageSize = 25;
+
+    document.getElementById('totalPacientes').textContent = total.toLocaleString();
+    document.getElementById('fromCount').textContent = ((page-1)*pageSize+1).toLocaleString();
+    document.getElementById('toCount').textContent = Math.min(page*pageSize, total).toLocaleString();
+
+    if (items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="11" class="text-center py-5 text-muted">
+        <i class="bi bi-inbox fs-1 d-block mb-2 opacity-25"></i>
+        Sin resultados para los filtros aplicados.
+      </td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map(p => {
+      const reg = p.registros?.[0] || {};
+      const rc = RISK_COLOR[reg.riesgo_enfermedad] || 'secondary';
+      const habitos = [reg.fumador?'🫁':'', reg.consumo_alcohol?'🍺':''].filter(Boolean).join(' ') || '<span class="text-success">✓</span>';
+      return `
+        <tr>
+          <td class="ps-3"><small class="text-secondary fw-bold">${p.cedula || p.id_paciente_original || '—'}</small></td>
+          <td>
+            <div class="fw-bold">${p.nombres} ${p.apellidos}</div>
+            <small class="text-muted">ID: ${p.id_paciente_original}</small>
+          </td>
+          <td>${p.edad} <small class="text-muted">años</small></td>
+          <td>${p.sexo === 'F' ? '<span class="text-danger">♀</span>' : '<span class="text-primary">♂</span>'} ${p.sexo === 'F' ? 'Femenino' : 'Masculino'}</td>
+          <td>
+            <span class="${reg.imc >= 30 ? 'text-danger' : reg.imc >= 25 ? 'text-warning' : 'text-success'} fw-bold">
+              ${reg.imc?.toFixed(1) || '—'}
+            </span>
+          </td>
+          <td>
+            <span class="${reg.glucosa > 125 ? 'text-danger fw-bold' : reg.glucosa > 100 ? 'text-warning' : ''}">
+              ${reg.glucosa?.toFixed(0) || '—'} <small class="text-muted">mg/dL</small>
+            </span>
+          </td>
+          <td>
+            <span class="${reg.presion_sistolica > 140 ? 'text-danger fw-bold' : ''}">
+              ${reg.presion_sistolica || '—'}/${reg.presion_diastolica || '—'}
+            </span>
+          </td>
+          <td>
+            <span class="badge rounded-pill bg-${rc}">
+              ${reg.riesgo_enfermedad === 'Crítico' ? '🚨' : reg.riesgo_enfermedad === 'Alto' ? '⚠️' : ''}
+              ${reg.riesgo_enfermedad || 'N/A'}
+            </span>
+          </td>
+          <td><small>${reg.diagnostico_preliminar || '—'}</small></td>
+          <td>${habitos}</td>
+          <td>
+            <a href="/pacientes/${p.id}/" class="btn btn-sm btn-outline-primary shadow-sm">
+              <i class="bi bi-eye"></i> Ver
+            </a>
+          </td>
+        </tr>`;
+    }).join('');
+
+    // Pagination
+    renderPagination(total, pageSize, page);
+  } catch(e) { console.error(e); }
+}
+
+function renderPagination(total, pageSize, current) {
+  const totalPages = Math.ceil(total / pageSize);
+  const ul = document.getElementById('pagination');
+  if (totalPages <= 1) { ul.innerHTML = ''; return; }
+
+  let html = '';
+  html += `<li class="page-item ${current===1?'disabled':''}">
+    <a class="page-link" onclick="loadPacientes(${current-1})">‹</a></li>`;
+
+  const range = [];
+  for (let p = Math.max(1, current-2); p <= Math.min(totalPages, current+2); p++) range.push(p);
+  if (range[0] > 1) { html += `<li class="page-item"><a class="page-link" onclick="loadPacientes(1)">1</a></li>`; if(range[0]>2) html += `<li class="page-item disabled"><span class="page-link">…</span></li>`; }
+  range.forEach(p => { html += `<li class="page-item ${p===current?'active':''}"><a class="page-link" onclick="loadPacientes(${p})">${p}</a></li>`; });
+  if (range[range.length-1] < totalPages) { if(range[range.length-1]<totalPages-1) html += `<li class="page-item disabled"><span class="page-link">…</span></li>`; html += `<li class="page-item"><a class="page-link" onclick="loadPacientes(${totalPages})">${totalPages}</a></li>`; }
+
+  html += `<li class="page-item ${current===totalPages?'disabled':''}">
+    <a class="page-link" onclick="loadPacientes(${current+1})">›</a></li>`;
+  ul.innerHTML = html;
+}
+
+function buscar(val) {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => loadPacientes(1), 400);
+}
+
+loadPacientes();
+</script>
+{% endblock %}

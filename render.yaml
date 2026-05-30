@@ -1,0 +1,65 @@
+# HealthShield AI — Despliegue en Render.com
+# Documentación: https://render.com/docs/yaml-spec
+# Comando: render up (o conecta el repo en render.com)
+
+services:
+  - type: web
+    name: healthshield-ai-backend
+    runtime: python
+    buildCommand: |
+      pip install -r backend/requirements.txt
+      cd backend && python manage.py migrate --noinput
+      cd backend && python manage.py collectstatic --noinput
+    startCommand: |
+      cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: healthshield-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: healthshield-redis
+          type: redis
+          property: connectionString
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com,localhost"
+      - key: ANTHROPIC_API_KEY
+        sync: false   # ingresar manualmente en Render dashboard
+      - key: GEMINI_API_KEY
+        sync: false   # ingresar manualmente en Render dashboard
+    healthCheckPath: /api/schema/
+
+  - type: worker
+    name: healthshield-celery
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && celery -A config worker --loglevel=info
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: healthshield-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: healthshield-redis
+          type: redis
+          property: connectionString
+
+  - type: redis
+    name: healthshield-redis
+    plan: free
+    maxmemoryPolicy: noeviction
+
+databases:
+  - name: healthshield-db
+    databaseName: healthshield_db
+    plan: free
