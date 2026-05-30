@@ -11,7 +11,7 @@ class KPIsView(APIView):
         return Response(KPICalculator().get_all_kpis())
 
 class EstadisticaView(APIView):
-    permission_classes = [EsAnalista]
+    permission_classes = [EsAnalista | EsMedico]
     def get(self, request) -> Response:
         campo = request.query_params.get('campo', 'glucosa')
         if campo not in CAMPOS_VALIDOS:
@@ -19,13 +19,13 @@ class EstadisticaView(APIView):
         return Response(EstadisticaDescriptiva().calcular(campo))
 
 class DetectarCriticosView(APIView):
-    permission_classes = [EsAnalista]
+    permission_classes = [EsAnalista | EsMedico]
     def post(self, request) -> Response:
         creadas = PacienteCriticoDetector().detectar()
         return Response({'alertas_creadas': creadas, 'mensaje': f'{creadas} nuevas alertas críticas generadas'})
 
 class SegmentacionView(APIView):
-    permission_classes = [EsAnalista]
+    permission_classes = [EsAnalista | EsMedico]
     def get(self, request) -> Response:
         from django.db.models import (
             Avg, Case, CharField, Count, IntegerField, Max, Min, Value, When
@@ -140,7 +140,7 @@ class SegmentacionView(APIView):
 
 class CorrelacionView(APIView):
     """GET /api/analytics/correlacion/ — Matriz de correlación de Pearson."""
-    permission_classes = [EsAnalista]
+    permission_classes = [EsAnalista | EsMedico]
 
     def get(self, request) -> Response:
         from .correlacion import CorrelacionCalculator

@@ -1,3 +1,4 @@
+
 {% extends "base.html" %}
 {% block title %}Dashboard — HealthShield AI{% endblock %}
 {% block content %}
@@ -80,14 +81,14 @@
     </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card border-0 shadow-sm text-center">
+    <a href="/pacientes/drilldown/?filtro=diabeticos" class="card border-0 shadow-sm text-center kpi-card text-decoration-none">
       <div class="card-body py-3">
         <i class="bi bi-clipboard-data fs-3 text-purple mb-1" style="color:#6f42c1"></i>
         <div class="text-muted small">Glucosa Promedio</div>
-        <h3 class="fw-bold mb-0" id="kpi-glucosa">—</h3>
+        <h3 class="fw-bold text-dark mb-0" id="kpi-glucosa">—</h3>
         <small class="text-muted">mg/dL</small>
       </div>
-    </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
     <a href="/pacientes/drilldown/?filtro=riesgo" class="card border-0 shadow-sm text-center kpi-card text-decoration-none">
@@ -216,7 +217,7 @@
 
 <!-- Panel ETL (solo Admin/Analista) -->
 {# BUG FIX: usar == para comparación exacta de roles en lugar de 'in' string #}
-{% if request.user.rol == "administrador" or request.user.rol == "analista" or request.user.is_staff or request.user.is_superuser %}
+{% if request.user.rol == 'administrador' or request.user.rol == 'analista' or request.user.is_staff or request.user.is_superuser %}
 <div class="row g-4 mb-4">
   <div class="col-12">
     <div class="card border-0 shadow-sm">
@@ -232,10 +233,10 @@
 </div>
 {% endif %}
 
+
 <!-- ─── CHATBOT ASISTENTE MÉDICO (Solo Médico) ────────────────────────────── -->
-{# BUG FIX: chatbot visible SOLO para médicos, implementado con ORM local #}
-{% if request.user.rol == "medico" or request.user.is_staff or request.user.is_superuser %}
-<div class="card border-0 shadow-sm mb-4 border-primary" style="border-left:4px solid #0d6efd!important;">
+<div id="chatbotSection" class="card border-0 shadow-sm mb-4 border-primary" style="display: none; border-left:4px solid #0d6efd!important;">
+
   <div class="card-header bg-white border-0 pt-3">
     <div class="d-flex align-items-center gap-2">
       <div class="rounded-circle bg-primary d-flex align-items-center justify-content-center" style="width:36px;height:36px;">
@@ -280,7 +281,6 @@
     </div>
   </div>
 </div>
-{% endif %}
 
 {% endblock %}
 
@@ -543,5 +543,31 @@ loadDashboard();
 loadSexoChart();
 loadEdadChart();
 setInterval(loadDashboard, 60000);
+
+// Lógica de interfaz usando el JWT almacenado en el navegador
+const userStr = localStorage.getItem('user');
+if (userStr) {
+    const userObj = JSON.parse(userStr);
+    
+    if (userObj.rol === 'medico') {
+        // Mostrar el chatbot
+        const chatbot = document.getElementById('chatbotSection');
+        if(chatbot) chatbot.style.display = 'block';
+        
+        // Ocultar gráficas vacías y expandir la de IMC para que se vea bien
+        const colSexo = document.getElementById('colSexo');
+        const colEdad = document.getElementById('colEdad');
+        const colImc = document.getElementById('colImc');
+        
+        if(colSexo) colSexo.style.display = 'none';
+        if(colEdad) colEdad.style.display = 'none';
+        if(colImc) colImc.className = 'col-md-12'; // Hace que el IMC ocupe todo el ancho
+    }
+}
+
+
+
+
+
 </script>
 {% endblock %}
