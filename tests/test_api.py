@@ -13,7 +13,7 @@ os.environ['DATABASE_URL'] = 'sqlite://:memory:'
 
 django.setup()
 
-from django.test import TestCase, Client
+from django.test import Client
 from django.test.utils import setup_test_environment
 from apps.authentication.models import UsuarioClinico
 
@@ -40,6 +40,31 @@ old_config = runner.setup_databases()
 admin  = UsuarioClinico.objects.create_superuser('admin_test','admin@test.com','Pass123!', rol='administrador')
 medico = UsuarioClinico.objects.create_user('medico_test','medico@test.com','Pass123!', rol='medico')
 analista = UsuarioClinico.objects.create_user('analista_test','analista@test.com','Pass123!', rol='analista')
+
+# Crear un Paciente + RegistroClinico de prueba para estadísticas (analytics/estadistica)
+from apps.etl.models import Paciente, RegistroClinico
+
+paciente_test = Paciente.objects.create(
+    cedula=123,
+    nombres='Paciente',
+    apellidos='Test',
+    edad=30,
+    sexo='F',
+    id_paciente_original=1,
+)
+
+RegistroClinico.objects.create(
+    paciente=paciente_test,
+    glucosa=100.0,
+    imc=20.0,
+    presion_sistolica=120,
+    colesterol=180.0,
+    saturacion_oxigeno=98.0,
+    temperatura=36.5,
+    frecuencia_cardiaca=80,
+    riesgo_enfermedad='Bajo',
+    fecha_consulta='2024-01-01',
+)
 
 client = Client()
 
