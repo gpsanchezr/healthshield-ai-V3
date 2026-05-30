@@ -1,13 +1,16 @@
 # 🛡️ HealthShield AI
-### Plataforma Inteligente de Analítica Clínica · HealthAnalytics IPS
 
-> *"Medicina Preventiva Proactiva: transformamos datos clínicos en decisiones que salvan vidas."*
+### Plataforma Inteligente de Analítica Clínica · **HealthAnalytics IPS**
 
-![Python](https://img.shields.io/badge/Python-3.12+-blue)
-![Django](https://img.shields.io/badge/Django-5.x-green)
-![Tests](https://img.shields.io/badge/Tests-20%2F20%20passing-brightgreen)
-![Docker](https://img.shields.io/badge/Docker-ready-blue)
-![IA](https://img.shields.io/badge/IA-Claude%20%2B%20Gemini-purple)
+> **“Medicina Preventiva Proactiva: transformamos datos clínicos en decisiones que salvan vidas.”**
+
+<p align="left">
+  <img src="https://img.shields.io/badge/Python-3.12+-blue?logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/Django-5.x-green?logo=django" alt="Django">
+  <img src="https://img.shields.io/badge/Tests-20%2F20%20passing-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/Docker-ready-blue?logo=docker" alt="Docker">
+  <img src="https://img.shields.io/badge/IA-Claude%20%2B%20Gemini-purple" alt="IA">
+</p>
 
 ---
 
@@ -35,16 +38,16 @@
 
 ## 1. Descripción General
 
-**HealthShield AI** es una plataforma web FullStack que resuelve los problemas de la IPS **HealthAnalytics** mediante:
+**HealthShield AI** es una plataforma web FullStack que resuelve los problemas de la IPS **HealthAnalytics** mediante una cadena de valor end-to-end:
 
 | Problema IPS | Solución HealthShield AI |
 |---|---|
-| Mala calidad de datos | Pipeline ETL con 8 transformadores automáticos |
-| Duplicidad de pacientes | Deduplicación por id_paciente con trazabilidad |
-| Diagnósticos mal escritos | Normalización ortográfica con regex |
-| Falta de KPIs clínicos | 10+ KPIs en tiempo real en dashboard |
-| Sin detección de críticos | Reglas clínicas + alertas proactivas |
-| Sin análisis predictivo | Random Forest con XAI + IA generativa (Claude/Gemini) |
+| Mala calidad de datos | Pipeline ETL con **8 transformadores automáticos** |
+| Duplicidad de pacientes | Deduplicación por `id_paciente` con **trazabilidad** |
+| Diagnósticos mal escritos | Normalización ortográfica con **regex** |
+| Falta de KPIs clínicos | **10+ KPIs** en tiempo real en dashboard |
+| Sin detección de críticos | Reglas clínicas + **alertas proactivas** |
+| Sin análisis predictivo | **Random Forest + XAI** + IA generativa (Claude/Gemini) |
 
 ---
 
@@ -68,7 +71,7 @@
 
 ## 3. Arquitectura
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │              FRONTEND (Bootstrap 5 + Chart.js)               │
 │  Dashboard · Pacientes · ETL · ML + IA · Alertas · Reportes │
@@ -136,7 +139,7 @@ Servicios disponibles:
 
 ### Pipeline de 8 transformadores en cadena
 
-```
+```text
 EXTRACT (CSV/Excel)
     ↓
 DuplicateRemover    → Elimina registros con id_paciente repetido
@@ -217,6 +220,7 @@ python manage.py train_model --algorithm random_forest
 ### Explicabilidad (XAI)
 
 Cada predicción incluye los 3 factores más determinantes:
+
 ```json
 {
   "riesgo_predicho": "Alto",
@@ -238,6 +242,7 @@ HealthShield AI integra dos proveedores de IA para generar análisis clínico na
 ### Configuración
 
 En el archivo `.env`:
+
 ```env
 ANTHROPIC_API_KEY=sk-ant-...   # Claude (Anthropic)
 GEMINI_API_KEY=AIza...          # Gemini (Google)
@@ -274,7 +279,7 @@ curl /api/predicciones/proveedores-ia/ \
 
 ### Respuesta del análisis
 
-```
+```text
 1. RESUMEN CLÍNICO
 Paciente de 60 años con presión sistólica elevada (162 mmHg) y glucosa en
 rango diabético (285 mg/dL). El IMC de 33.4 indica obesidad grado I...
@@ -313,19 +318,25 @@ Nota: este análisis es orientativo y no reemplaza la evaluación médica presen
 
 ### Estadística descriptiva (por campo)
 
-`GET /api/analytics/estadistica/?campo=glucosa`
+```text
+GET /api/analytics/estadistica/?campo=glucosa
+```
 
 Devuelve: **media, mediana, moda, desviación estándar, mínimo, máximo, percentiles 25/75, rango IQR**
 
 ### Correlación clínica (Heatmap)
 
-`GET /api/analytics/correlacion/`
+```text
+GET /api/analytics/correlacion/
+```
 
 Matriz de correlación de Pearson entre 8 variables: IMC, glucosa, colesterol, presión sistólica/diastólica, frecuencia cardíaca, saturación O₂, temperatura.
 
 ### Tendencias clínicas por tiempo
 
-`GET /api/analytics/tendencia-clinica/?campo=glucosa`
+```text
+GET /api/analytics/tendencia-clinica/?campo=glucosa
+```
 
 Evolución mensual de cualquier variable clínica.
 
@@ -373,7 +384,7 @@ Swagger UI interactivo: **http://localhost:8000/api/schema/swagger-ui/**
 
 1. **JWT Authentication**: access token (60 min) + refresh token (7 días)
 2. **3 Roles**: Administrador → Analista → Médico con permisos progresivos
-3. **SanitizacionMiddleware**: escapa HTML y elimina caracteres peligrosos en todos los inputs JSON
+3. **SanitizacionMiddleware**: escapa HTML y elimina caracteres peligrosos en inputs JSON
 4. **AuditoriaMiddleware**: registra cada POST/PUT/PATCH/DELETE con usuario, IP y timestamp
 5. **Rate Limiting**: 20 req/min anónimos, 200 req/min autenticados
 6. **CSRF**: protección de Django activada por defecto
@@ -495,28 +506,33 @@ railway up
 ### Flujo recomendado para el evaluador
 
 **Paso 1 — Setup**
+
 ```bash
 bash quickstart.sh    # instala todo y carga los datos
 ```
 
 **Paso 2 — Verificar ETL**
+
 1. Ir a **ETL** en el menú
 2. Ver el historial de ejecuciones
 3. Hacer clic en el ícono de reporte → ver el **Data Quality Report**
 4. Probar el **Simulador Live** con 50 registros
 
 **Paso 3 — Explorar el Dashboard**
+
 1. Ver los KPIs en tiempo real
 2. Observar el **Heatmap de correlación**
 3. Revisar las **alertas críticas** en el banner rojo
 
 **Paso 4 — Predecir con IA**
+
 1. Ir a **Pacientes** → seleccionar cualquier paciente con riesgo Alto o Crítico
 2. Hacer clic en **"Predecir Riesgo con IA"**
 3. En la sección "Análisis IA", seleccionar **Claude** o **Gemini**
 4. Hacer clic en **"Analizar"** y ver el análisis narrativo
 
 **Paso 5 — Exportar reportes**
+
 1. Ir a **Reportes**
 2. Descargar el PDF clínico
 3. Descargar el Excel con colores por riesgo
@@ -525,7 +541,7 @@ bash quickstart.sh    # instala todo y carga los datos
 
 ## 17. Estructura del Proyecto
 
-```
+```text
 healthshield-ai/
 │
 ├── backend/
@@ -603,6 +619,7 @@ healthshield-ai/
 | Documentación | 10% | README 500+ líneas, Swagger, ERD Mermaid visual, architecture.md, api.md, 38 tests automatizados | ✅ 100% |
 
 ### Bonus implementados (todos los del PDF)
+
 - ✅ **Celery + Redis** — ETL y ML asíncronos con polling de progreso
 - ✅ **Docker Compose** — PostgreSQL + Django + Celery Worker + Redis en 1 comando
 - ✅ **GitHub Actions CI/CD** — 4 jobs: unit tests, integration tests, code quality, docker build
@@ -611,6 +628,7 @@ healthshield-ai/
 - ✅ **WebSockets-ready** — arquitectura preparada vía Celery (base para channels)
 
 ### Extras no solicitados (diferenciadores)
+
 - ✅ **Heatmap de correlación de Pearson** — Canvas custom 8×8 sin plugin externo
 - ✅ **ETL Health Check** — gráfica de evolución del quality score histórico
 - ✅ **Brute-force protection** — bloqueo tras 5 intentos fallidos / 15 min
@@ -624,4 +642,4 @@ healthshield-ai/
 ---
 
 *HealthShield AI — Desarrollado para el Reto Técnico FullStack + Data Analytics + ETL + Machine Learning*
-*Fecha de entrega: 15 de junio de 2026 · Modalidad: Individual*
+
