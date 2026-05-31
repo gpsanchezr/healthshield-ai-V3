@@ -1,13 +1,14 @@
-# TODO - Mejora visual README (sin reestructurar)
+# TODO
 
-- [x] Revisar README.md actual para identificar inconsistencias de formato (títulos/anchors, tablas, código sin language, badges inconsistentes).
-- [x] Reemplazar el README por una versión optimizada visualmente manteniendo el mismo orden lógico y secciones existentes.
-
-- [x] Alinear tablas (usa `|---|` y separadores consistentes) y corregir enlaces del TOC si hay anchors rotos.
-- [x] Especificar language en bloques de código (bash/python/json/env) y normalizar indentación.
-- [x] Limpieza de separadores y márgenes (evitar `Markdown#`/texto corrido, corregir etiquetas HTML/markdown).
-- [x] Asegurar que badges, Mermaid y TOC se rendericen correctamente en GitHub.
-- [x] Ejecutar una verificación rápida abriendo/validando con `python -c` no aplica; en su lugar: revisar visualmente el README y correr `pytest` no requerido.
-- [x] Confirmar finalización.
+- [ ] Refactor `tests/test_api.py` para pasar de smoke-script a suite profesional pytest-django.
+- [ ] Usar fixtures para roles (admin/medico/analista) y datos base (paciente/registro).
+- [ ] Reemplazar `django.test.Client` por `rest_framework.test.APIClient`.
+- [ ] Enviar payloads JSON correctamente (vía `format='json'` o `json.dumps`).
+- [ ] Eliminar estado global y ejecución manual (`main()` / `django.setup()` / DB en memoria forzada).
+- [ ] Asegurar aislamiento: cada test independiente (sin mutaciones compartidas).
+- [ ] Validaciones estrictas con `rest_framework.status` y verificación de claves JSON (access/refresh/kpis/openapi).
+- [ ] Añadir/ajustar pruebas RBAC: admin ok; medico/analista bloqueados en acciones no permitidas (403).
+- [x] Ejecutar/ajustar la refactorización base de `tests/test_api.py`.
+- [ ] Ejecutar `pytest` y corregir fallos hasta que la suite pase.
 
 

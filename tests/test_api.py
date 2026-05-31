@@ -1,237 +1,483 @@
 """
-Tests de integración de la API REST — HealthShield AI
-Usa Django TestClient sin base de datos real (usa SQLite en memoria).
-Ejecutar: python3 tests/test_api.py
+Smoke tests de integracion para la API REST de HealthShield AI.
+
+Ejecutar:
+    python tests/test_api.py
+
+Este archivo no reemplaza una suite pytest/unittest completa; valida de forma
+rapida que los endpoints principales respondan y que los permisos basicos
+esten alineados con la configuracion actual del proyecto.
 """
-import sys, os, django
+import logging
+import os
+import sys
+from dataclasses import dataclass
+from importlib import import_module
+from typing import Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
-os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings.development'
+import pytest
 
-# Usar SQLite en memoria para los tests
-os.environ['DATABASE_URL'] = 'sqlite://:memory:'
 
-django.setup()
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BACKEND_DIR = os.path.join(BASE_DIR, "backend")
+sys.path.insert(0, BACKEND_DIR)
 
-from django.test import Client
-from django.test.utils import setup_test_environment
-from apps.authentication.models import UsuarioClinico
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
 
-setup_test_environment()
 
-passed = 0; total = 0
+@dataclass
+class SmokeStats:
+    """Acumula el resultado de los smoke tests ejecutados."""
 
-def t(name, fn):
-    global passed, total
-    total += 1
+    passed: int = 0
+    total: int = 0
+
+
+@dataclass
+class RuntimeState:
+    """Guarda objetos inicializados despues de configurar Django."""
+
+    client: Any = None
+
+
+STATS = SmokeStats()
+STATE = RuntimeState()
+
+
+def check(name, fn):
+    """Ejecuta una validacion y registra si pasa o falla."""
+    STATS.total += 1
     try:
         fn()
-        print(f"  ✅  {name}")
-        passed += 1
-    except Exception as e:
-        print(f"  ❌  {name}: {e}")
+    except Exception as exc:
+        print(f"  [FAIL] {name}: {exc}")
+        return
 
-# Crear tablas en SQLite memory
-from django.test.runner import DiscoverRunner
-runner = DiscoverRunner(verbosity=0)
-old_config = runner.setup_databases()
+    STATS.passed += 1
+    print(f"  [OK]   {name}")
 
-# Crear usuarios de prueba
-admin  = UsuarioClinico.objects.create_superuser('admin_test','admin@test.com','Pass123!', rol='administrador')
-medico = UsuarioClinico.objects.create_user('medico_test','medico@test.com','Pass123!', rol='medico')
-analista = UsuarioClinico.objects.create_user('analista_test','analista@test.com','Pass123!', rol='analista')
 
-# Crear un Paciente + RegistroClinico de prueba para estadísticas (analytics/estadistica)
-from apps.etl.models import Paciente, RegistroClinico
+def assert_status(response, expected, message=None):
+    """Valida que el status HTTP sea uno de los esperados."""
+    expected_values = (
+        expected if isinstance(expected, (list, tuple, set)) else [expected]
+    )
+    if response.status_code not in expected_values:
+        body = response.content.decode("utf-8", errors="replace")[:500]
+        raise AssertionError(
+            message
+            or (
+                f"status {response.status_code}, "
+                f"esperado {list(expected_values)}. Body: {body}"
+            )
+        )
 
-paciente_test = Paciente.objects.create(
-    cedula=123,
-    nombres='Paciente',
-    apellidos='Test',
-    edad=30,
-    sexo='F',
-    id_paciente_original=1,
-)
 
-RegistroClinico.objects.create(
-    paciente=paciente_test,
-    glucosa=100.0,
-    imc=20.0,
-    presion_sistolica=120,
-    colesterol=180.0,
-    saturacion_oxigeno=98.0,
-    temperatura=36.5,
-    frecuencia_cardiaca=80,
-    riesgo_enfermedad='Bajo',
-    fecha_consulta='2024-01-01',
-)
+def get_client():
+    """Devuelve el cliente de Django inicializado para la ejecucion actual."""
+    assert STATE.client is not None
+    return STATE.client
 
-client = Client()
 
-def get_token(username, password='Pass123!'):
-    r = client.post('/api/auth/login/', {'username': username, 'password': password},
-                    content_type='application/json')
-    if r.status_code == 200:
-        return r.json()['access']
-    return None
+def json_response(response):
+    """Devuelve el cuerpo JSON o lanza un error legible."""
+    try:
+        return response.json()
+    except ValueError as exc:
+        body = response.content.decode("utf-8", errors="replace")[:500]
+        raise AssertionError(
+            f"Respuesta no es JSON valido. Body: {body}"
+        ) from exc
+
+
+def get_token(username, password="Pass123!"):
+    """Obtiene un access token para el usuario indicado."""
+    response = get_client().post(
+        "/api/auth/login/",
+        {"username": username, "password": password},
+        content_type="application/json",
+    )
+    assert_status(response, 200, f"No se pudo autenticar usuario {username!r}")
+    data = json_response(response)
+    assert "access" in data, f"Login sin access token: {data}"
+    return data["access"]
+
 
 def auth_header(token):
-    return {'HTTP_AUTHORIZATION': f'Bearer {token}'}
+    """Construye el header HTTP de autenticacion JWT."""
+    return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
-# ── AUTH ───────────────────────────────────────────────────────────────────────
-def _login_ok():
-    r = client.post('/api/auth/login/',
-                    {'username': 'admin_test', 'password': 'Pass123!'},
-                    content_type='application/json')
-    assert r.status_code == 200, f"Status: {r.status_code}"
-    data = r.json()
-    assert 'access' in data and 'refresh' in data
-    assert data['usuario']['rol'] == 'administrador'
-t("POST /api/auth/login/ → JWT tokens y datos usuario", _login_ok)
 
-def _login_fail():
-    r = client.post('/api/auth/login/',
-                    {'username': 'admin_test', 'password': 'wrong'},
-                    content_type='application/json')
-    assert r.status_code == 401, f"Debería ser 401, got {r.status_code}"
-t("POST /api/auth/login/ credenciales incorrectas → 401", _login_fail)
+def seed_data():
+    """Crea usuarios y datos clinicos minimos para los endpoints."""
+    auth_models = import_module("apps.authentication.models")
+    etl_models = import_module("apps.etl.models")
+    usuario_clinico = auth_models.UsuarioClinico
+    paciente_model = etl_models.Paciente
+    registro_clinico = etl_models.RegistroClinico
 
-def _login_sin_credenciales():
-    r = client.get('/api/pacientes/')
-    assert r.status_code == 401, f"Sin token debería ser 401, got {r.status_code}"
-t("GET /api/pacientes/ sin token → 401", _login_sin_credenciales)
+    usuario_clinico.objects.create_superuser(
+        "admin_test", "admin@test.com", "Pass123!", rol="administrador"
+    )
+    usuario_clinico.objects.create_user(
+        "medico_test", "medico@test.com", "Pass123!", rol="medico"
+    )
+    usuario_clinico.objects.create_user(
+        "analista_test", "analista@test.com", "Pass123!", rol="analista"
+    )
 
-def _me():
-    token = get_token('admin_test')
-    r = client.get('/api/auth/me/', **auth_header(token))
-    assert r.status_code == 200
-    assert r.json()['rol'] == 'administrador'
-t("GET /api/auth/me/ → datos del usuario autenticado", _me)
+    paciente = paciente_model.objects.create(
+        cedula=123,
+        nombres="Paciente",
+        apellidos="Test",
+        edad=30,
+        sexo="F",
+        id_paciente_original=1,
+    )
 
-def _refresh():
-    r = client.post('/api/auth/login/',
-                    {'username': 'admin_test', 'password': 'Pass123!'},
-                    content_type='application/json')
-    refresh = r.json()['refresh']
-    r2 = client.post('/api/auth/refresh/',
-                     {'refresh': refresh}, content_type='application/json')
-    assert r2.status_code == 200 and 'access' in r2.json()
-t("POST /api/auth/refresh/ → nuevo access token", _refresh)
+    registro_clinico.objects.create(
+        paciente=paciente,
+        glucosa=100.0,
+        imc=20.0,
+        presion_sistolica=120,
+        colesterol=180.0,
+        saturacion_oxigeno=98.0,
+        temperatura=36.5,
+        frecuencia_cardiaca=80,
+        riesgo_enfermedad="Bajo",
+        fecha_consulta="2024-01-01",
+    )
 
-# ── PACIENTES (requieren datos — chequeamos que responde con estructura correcta) ──
-def _pacientes_list():
-    token = get_token('medico_test')
-    r = client.get('/api/pacientes/', **auth_header(token))
-    assert r.status_code == 200
-    data = r.json()
-    assert 'results' in data or isinstance(data, list), "Debe retornar lista o paginación"
-t("GET /api/pacientes/ con rol médico → 200 + lista", _pacientes_list)
 
-def _pacientes_analista_prohibido():
-    # Analista no tiene acceso a endpoint de pacientes (requiere EsMedico)
-    token = get_token('analista_test')
-    r = client.get('/api/pacientes/', **auth_header(token))
-    # analista no es médico → 403
-    assert r.status_code in [403, 200], f"Got {r.status_code}"
-t("GET /api/pacientes/ permisos por rol funcionan", _pacientes_analista_prohibido)
+def case_login_ok():
+    """Valida login exitoso y estructura del token."""
+    response = get_client().post(
+        "/api/auth/login/",
+        {"username": "admin_test", "password": "Pass123!"},
+        content_type="application/json",
+    )
+    assert_status(response, 200)
+    data = json_response(response)
+    assert "access" in data and "refresh" in data
+    assert data["usuario"]["rol"] == "administrador"
 
-# ── ETL ────────────────────────────────────────────────────────────────────────
-def _historial_etl():
-    token = get_token('analista_test')
-    r = client.get('/api/etl/historial/', **auth_header(token))
-    assert r.status_code == 200
-    data = r.json()
-    assert 'results' in data or 'historial' in data
-t("GET /api/etl/historial/ con rol analista → 200", _historial_etl)
 
-def _etl_sin_archivo():
-    token = get_token('analista_test')
-    r = client.post('/api/etl/run/', **auth_header(token))
-    assert r.status_code == 400, f"Sin archivo debe ser 400, got {r.status_code}"
-t("POST /api/etl/run/ sin archivo → 400 Bad Request", _etl_sin_archivo)
+def case_login_fail():
+    """Valida rechazo de credenciales incorrectas."""
+    response = get_client().post(
+        "/api/auth/login/",
+        {"username": "admin_test", "password": "wrong"},
+        content_type="application/json",
+    )
+    assert_status(response, 401)
 
-def _simular_solo_admin():
-    token = get_token('medico_test')
-    r = client.post('/api/etl/simular/', {'count': 5},
-                    content_type='application/json', **auth_header(token))
-    assert r.status_code == 403, f"Médico no debe simular, got {r.status_code}"
-t("POST /api/etl/simular/ con médico → 403 Forbidden", _simular_solo_admin)
 
-# ── ANALYTICS ─────────────────────────────────────────────────────────────────
-def _kpis():
-    token = get_token('medico_test')
-    r = client.get('/api/analytics/kpis/', **auth_header(token))
-    assert r.status_code == 200
-    data = r.json()
-    assert 'total_registros' in data
-t("GET /api/analytics/kpis/ → 200 + KPIs", _kpis)
+def case_login_sin_credenciales():
+    """Valida que pacientes requiera autenticacion."""
+    response = get_client().get("/api/pacientes/")
+    assert_status(response, 401)
 
-def _dashboard_kpis():
-    token = get_token('medico_test')
-    r = client.get('/api/dashboard/kpis/', **auth_header(token))
-    assert r.status_code == 200
-    assert 'kpis' in r.json()
-t("GET /api/dashboard/kpis/ → 200 + estructura kpis", _dashboard_kpis)
 
-def _estadistica():
-    token = get_token('analista_test')
-    r = client.get('/api/analytics/estadistica/?campo=glucosa', **auth_header(token))
-    assert r.status_code == 200
-    data = r.json()
-    assert 'media' in data and 'mediana' in data
-t("GET /api/analytics/estadistica/?campo=glucosa → estadísticas descriptivas", _estadistica)
+def case_me():
+    """Valida el endpoint de usuario autenticado."""
+    token = get_token("admin_test")
+    response = get_client().get("/api/auth/me/", **auth_header(token))
+    assert_status(response, 200)
+    assert json_response(response)["rol"] == "administrador"
 
-def _estadistica_campo_invalido():
-    token = get_token('analista_test')
-    r = client.get('/api/analytics/estadistica/?campo=nombre_invalido', **auth_header(token))
-    assert r.status_code == 400
-t("GET /api/analytics/estadistica/ campo inválido → 400", _estadistica_campo_invalido)
 
-# ── ML ─────────────────────────────────────────────────────────────────────────
-def _modelo_sin_entrenar():
-    token = get_token('medico_test')
-    r = client.get('/api/predicciones/modelo/metricas/', **auth_header(token))
-    assert r.status_code in [200, 404]
-t("GET /api/predicciones/modelo/metricas/ → 200 o 404 (sin modelo)", _modelo_sin_entrenar)
+def case_refresh():
+    """Valida renovacion de access token."""
+    response = get_client().post(
+        "/api/auth/login/",
+        {"username": "admin_test", "password": "Pass123!"},
+        content_type="application/json",
+    )
+    refresh = json_response(response)["refresh"]
+    response = get_client().post(
+        "/api/auth/refresh/",
+        {"refresh": refresh},
+        content_type="application/json",
+    )
+    assert_status(response, 200)
+    assert "access" in json_response(response)
 
-def _predicciones_list():
-    token = get_token('medico_test')
-    r = client.get('/api/predicciones/', **auth_header(token))
-    assert r.status_code == 200
-t("GET /api/predicciones/ → 200 + lista", _predicciones_list)
 
-# ── SWAGGER ────────────────────────────────────────────────────────────────────
-def _swagger_disponible():
-    r = client.get('/api/schema/swagger-ui/')
-    assert r.status_code == 200, f"Swagger no disponible: {r.status_code}"
-t("GET /api/schema/swagger-ui/ → 200 (Swagger UI disponible)", _swagger_disponible)
+def case_pacientes_list_medico():
+    """Valida listado de pacientes para rol medico."""
+    token = get_token("medico_test")
+    response = get_client().get("/api/pacientes/", **auth_header(token))
+    assert_status(response, 200)
+    data = json_response(response)
+    assert isinstance(data, list) or "results" in data
 
-def _schema_json():
-    r = client.get('/api/schema/')
-    assert r.status_code == 200
-t("GET /api/schema/ → 200 (OpenAPI schema)", _schema_json)
 
-# ── PERMISOS POR ROL ───────────────────────────────────────────────────────────
-def _admin_puede_crear_usuario():
-    token = get_token('admin_test')
-    r = client.post('/api/auth/usuarios/',
-                    {'username':'nuevo_medico','password':'Pass456!',
-                     'email':'nuevo@test.com','rol':'medico',
-                     'first_name':'Nuevo','last_name':'Médico'},
-                    content_type='application/json', **auth_header(token))
-    assert r.status_code in [200, 201], f"Admin no pudo crear usuario: {r.status_code} {r.content}"
-t("POST /api/auth/usuarios/ con admin → 201 Created", _admin_puede_crear_usuario)
+def case_pacientes_list_analista():
+    """Valida listado de pacientes para rol analista."""
+    # EsMedico significa "acceso clinico" en permissions.py; incluye analista.
+    token = get_token("analista_test")
+    response = get_client().get("/api/pacientes/", **auth_header(token))
+    assert_status(response, 200)
 
-def _medico_no_puede_crear_usuario():
-    token = get_token('medico_test')
-    r = client.post('/api/auth/usuarios/',
-                    {'username':'otro','password':'Pass456!','email':'otro@test.com','rol':'medico'},
-                    content_type='application/json', **auth_header(token))
-    assert r.status_code == 403, f"Médico no debería crear usuarios: {r.status_code}"
-t("POST /api/auth/usuarios/ con médico → 403 Forbidden", _medico_no_puede_crear_usuario)
 
-# ── CLEANUP ────────────────────────────────────────────────────────────────────
-runner.teardown_databases(old_config)
+def case_historial_etl():
+    """Valida historial ETL para rol analista."""
+    token = get_token("analista_test")
+    response = get_client().get("/api/etl/historial/", **auth_header(token))
+    assert_status(response, 200)
+    data = json_response(response)
+    assert isinstance(data, list) or "results" in data
 
-print(f"\n{'='*55}")
-print(f"  API Tests: {passed}/{total} PASADOS {'✅ ALL PASS' if passed==total else f'⚠️  ({total-passed} fallando)'}")
+
+def case_etl_sin_archivo():
+    """Valida error al ejecutar ETL sin archivo."""
+    token = get_token("analista_test")
+    response = get_client().post("/api/etl/run/", **auth_header(token))
+    assert_status(response, 400)
+
+
+def case_simular_solo_admin():
+    """Valida que un medico no pueda simular datos ETL."""
+    token = get_token("medico_test")
+    response = get_client().post(
+        "/api/etl/simular/",
+        {"count": 5},
+        content_type="application/json",
+        **auth_header(token),
+    )
+    assert_status(response, 403)
+
+
+def case_kpis():
+    """Valida KPIs de analytics."""
+    token = get_token("medico_test")
+    response = get_client().get("/api/analytics/kpis/", **auth_header(token))
+    assert_status(response, 200)
+    assert "total_registros" in json_response(response)
+
+
+def case_dashboard_kpis():
+    """Valida KPIs del dashboard."""
+    token = get_token("medico_test")
+    response = get_client().get("/api/dashboard/kpis/", **auth_header(token))
+    assert_status(response, 200)
+    assert "kpis" in json_response(response)
+
+
+def case_estadistica():
+    """Valida estadisticas para un campo numerico."""
+    token = get_token("analista_test")
+    response = get_client().get(
+        "/api/analytics/estadistica/?campo=glucosa", **auth_header(token)
+    )
+    assert_status(response, 200)
+    data = json_response(response)
+    assert "media" in data and "mediana" in data
+
+
+def case_estadistica_campo_invalido():
+    """Valida error para un campo estadistico invalido."""
+    token = get_token("analista_test")
+    response = get_client().get(
+        "/api/analytics/estadistica/?campo=nombre_invalido",
+        **auth_header(token),
+    )
+    assert_status(response, 400)
+
+
+def case_modelo_metricas_sin_modelo():
+    """Valida respuesta cuando no hay modelo de prediccion."""
+    token = get_token("medico_test")
+    response = get_client().get(
+        "/api/predicciones/modelo/metricas/",
+        **auth_header(token),
+    )
+    assert_status(response, 404)
+
+
+def case_predicciones_list():
+    """Valida listado de predicciones."""
+    token = get_token("medico_test")
+    response = get_client().get("/api/predicciones/", **auth_header(token))
+    assert_status(response, 200)
+
+
+def case_swagger_disponible():
+    """Valida disponibilidad de Swagger UI."""
+    response = get_client().get("/api/schema/swagger-ui/")
+    assert_status(response, 200)
+
+
+def case_schema_json():
+    """Valida disponibilidad del schema OpenAPI."""
+    response = get_client().get("/api/schema/")
+    assert_status(response, 200)
+
+
+def case_admin_puede_crear_usuario():
+    """Valida que un admin pueda crear usuarios."""
+    token = get_token("admin_test")
+    response = get_client().post(
+        "/api/auth/usuarios/",
+        {
+            "username": "nuevo_medico",
+            "password": "Pass456!",
+            "email": "nuevo@test.com",
+            "rol": "medico",
+            "first_name": "Nuevo",
+            "last_name": "Medico",
+        },
+        content_type="application/json",
+        **auth_header(token),
+    )
+    assert_status(response, 201)
+
+
+def case_medico_no_puede_crear_usuario():
+    """Valida que un medico no pueda crear usuarios."""
+    token = get_token("medico_test")
+    response = get_client().post(
+        "/api/auth/usuarios/",
+        {
+            "username": "otro",
+            "password": "Pass456!",
+            "email": "otro@test.com",
+            "rol": "medico",
+        },
+        content_type="application/json",
+        **auth_header(token),
+    )
+    assert_status(response, 403)
+
+
+TESTS = [
+    ("POST /api/auth/login/ -> JWT tokens y datos usuario", case_login_ok),
+    ("POST /api/auth/login/ credenciales incorrectas -> 401", case_login_fail),
+    ("GET /api/pacientes/ sin token -> 401", case_login_sin_credenciales),
+    ("GET /api/auth/me/ -> datos usuario autenticado", case_me),
+    ("POST /api/auth/refresh/ -> nuevo access token", case_refresh),
+    (
+        "GET /api/pacientes/ con rol medico -> 200 + lista",
+        case_pacientes_list_medico,
+    ),
+    (
+        "GET /api/pacientes/ con rol analista -> 200",
+        case_pacientes_list_analista,
+    ),
+    ("GET /api/etl/historial/ con rol analista -> 200", case_historial_etl),
+    ("POST /api/etl/run/ sin archivo -> 400", case_etl_sin_archivo),
+    ("POST /api/etl/simular/ con medico -> 403", case_simular_solo_admin),
+    ("GET /api/analytics/kpis/ -> 200 + KPIs", case_kpis),
+    ("GET /api/dashboard/kpis/ -> 200 + estructura kpis", case_dashboard_kpis),
+    (
+        "GET /api/analytics/estadistica/?campo=glucosa -> estadisticas",
+        case_estadistica,
+    ),
+    (
+        "GET /api/analytics/estadistica/ campo invalido -> 400",
+        case_estadistica_campo_invalido,
+    ),
+    (
+        "GET /api/predicciones/modelo/metricas/ sin modelo -> 404",
+        case_modelo_metricas_sin_modelo,
+    ),
+    ("GET /api/predicciones/ -> 200 + lista", case_predicciones_list),
+    ("GET /api/schema/swagger-ui/ -> 200", case_swagger_disponible),
+    ("GET /api/schema/ -> 200", case_schema_json),
+    (
+        "POST /api/auth/usuarios/ con admin -> 201",
+        case_admin_puede_crear_usuario,
+    ),
+    (
+        "POST /api/auth/usuarios/ con medico -> 403",
+        case_medico_no_puede_crear_usuario,
+    ),
+]
+
+
+def main():
+    """Ejecuta todos los smoke tests dentro de una base temporal."""
+    logging.disable(logging.CRITICAL)
+    STATS.passed = 0
+    STATS.total = 0
+
+    django, test_module, runner_module, utils_module = configure_django()
+
+    client_class = test_module.Client
+    discover_runner = runner_module.DiscoverRunner
+    setup_test_environment = utils_module.setup_test_environment
+    teardown_test_environment = utils_module.teardown_test_environment
+
+    django.setup()
+    STATE.client = client_class()
+
+    environment_started = False
+    try:
+        setup_test_environment()
+        environment_started = True
+    except RuntimeError as exc:
+        if "setup_test_environment() was already called" not in str(exc):
+            raise
+
+    runner = discover_runner(verbosity=0)
+    old_config = None
+
+    try:
+        old_config = runner.setup_databases()
+        seed_data()
+
+        for name, fn in TESTS:
+            check(name, fn)
+    finally:
+        if old_config is not None:
+            runner.teardown_databases(old_config)
+        if environment_started:
+            teardown_test_environment()
+
+    print(f"\n{'=' * 55}")
+    print(
+        f"  API Tests: {STATS.passed}/{STATS.total} PASADOS "
+        f"{'[ALL PASS]' if STATS.passed == STATS.total else failure_summary()}"
+    )
+    return 0 if STATS.passed == STATS.total else 1
+
+
+def failure_summary():
+    """Devuelve un resumen corto de pruebas fallidas."""
+    return f"[{STATS.total - STATS.passed} FALLANDO]"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_api_smoke():
+    """Permite ejecutar este smoke test tambien desde pytest."""
+    assert main() == 0
+
+
+def configure_django():
+    """Configura Django y devuelve los modulos requeridos por los tests."""
+    os.makedirs(os.path.join(BACKEND_DIR, "staticfiles"), exist_ok=True)
+
+    django = import_module("django")
+    settings = import_module("django.conf").settings
+    test_module = import_module("django.test")
+    runner_module = import_module("django.test.runner")
+    utils_module = import_module("django.test.utils")
+
+    settings.DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+    settings.PASSWORD_HASHERS = [
+        "django.contrib.auth.hashers.MD5PasswordHasher",
+    ]
+    settings.SPECTACULAR_SETTINGS = {
+        **getattr(settings, "SPECTACULAR_SETTINGS", {}),
+        "DISABLE_ERRORS_AND_WARNINGS": True,
+    }
+    return django, test_module, runner_module, utils_module
+
+
+if __name__ == "__main__":
+    sys.exit(main())

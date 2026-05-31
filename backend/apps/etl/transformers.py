@@ -87,16 +87,17 @@ class OutlierHandler(BaseTransformer):
         'peso':(20,300),'altura':(0.5,2.5),'presión_sistólica':(60,250),
         'presión_diastólica':(40,150),'frecuencia_cardiaca':(30,220),
         'glucosa':(50,600),'colesterol':(50,400),'saturación_oxígeno':(70,100),
-        'temperatura':(34,42),'edad':(0,120),
+        'temperatura':(34,42),'edad':(0,120),'IMC':(10,60),
     }
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         total = 0
         for col,(lo,hi) in self.RANGES.items():
             if col not in df.columns: continue
-            mask = (df[col] < lo) | (df[col] > hi)
+            numeric = pd.to_numeric(df[col], errors='coerce')
+            mask = (numeric < lo) | (numeric > hi)
             n = int(mask.sum())
             if n:
-                med = df.loc[~mask, col].median()
+                med = numeric.loc[~mask].median()
                 df.loc[mask, col] = med; total += n
                 self._log(f"{n} outliers en '{col}' [{lo},{hi}] → mediana={med:.2f}", col, 'WARNING')
         if self.qr: self.qr.add_metric('outliers_corregidos', total)
@@ -196,8 +197,10 @@ class RiskClassifier(BaseTransformer):
     def _score(r):
         s = 0
         ps = r.get('presión_sistólica', 0) or 0
-        g  = r.get('glucosa', 0) or 0
+        g = RiskClassifier._num(r.get('glucosa'), 0)
         so = r.get('saturación_oxígeno', 100) or 100
+        ps = RiskClassifier._num(ps, 0)
+        so = RiskClassifier._num(so, 100)
         if ps > 180: s += 3
         elif ps > 140: s += 2
         elif ps > 120: s += 1
@@ -206,13 +209,20 @@ class RiskClassifier(BaseTransformer):
         elif g > 140: s += 1
         if so < 85: s += 3
         elif so < 90: s += 2
-        edad = r.get('edad', 0) or 0
+        edad = RiskClassifier._num(r.get('edad'), 0)
         af   = r.get('antecedentes_familiares', False)
         if edad > 70 and af: s += 2
         if r.get('fumador', False): s += 1
-        imc = r.get('IMC', 0) or 0
+        imc = RiskClassifier._num(r.get('IMC'), 0)
         if imc > 35: s += 1
         if s >= 6: return 'Crítico'
         if s >= 4: return 'Alto'
         if s >= 2: return 'Medio'
         return 'Bajo'
+
+    @staticmethod
+    def _num(value, default=0):
+        value = pd.to_numeric(value, errors='coerce')
+        if pd.isna(value):
+            return default
+        return float(value)

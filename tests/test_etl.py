@@ -2,28 +2,17 @@
 Tests unitarios del pipeline ETL — HealthShield AI
 Ejecutar: pytest tests/test_etl.py -v
 """
-import pytest
-import pandas as pd
+import os
+import sys
+
 import numpy as np
-import sys, os
+import pandas as pd
+import pytest
 
 # Path setup — importar transformers directamente sin Django
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 
 # ── Stubs para evitar importar Django ORM ──────────────────────────────────────
-import types
-for mod in ['apps','apps.etl','apps.etl.models','django','django.db',
-            'django.db.models','django.conf']:
-    if mod not in sys.modules:
-        sys.modules[mod] = types.ModuleType(mod)
-
-# Stub settings
-settings_mod = types.ModuleType('django.conf')
-class _settings:
-    ML_MODELS_PATH = '/tmp/ml_models'
-settings_mod.settings = _settings()
-sys.modules['django.conf'] = settings_mod
-
 # Ahora importar los módulos reales
 from apps.etl.transformers import (
     DuplicateRemover, TypeCoercer, NullImputer, OutlierHandler,
