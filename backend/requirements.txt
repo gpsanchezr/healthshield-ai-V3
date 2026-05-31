@@ -46,3 +46,7 @@ pytest-cov
 
 # ── Calidad de Código ─────────────────────────────────────────────────────────
 flake8
+celery==5.4.0
+gunicorn==23.0.0
+redis==5.2.1
+

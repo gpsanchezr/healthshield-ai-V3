@@ -1,0 +1,52 @@
+warning: in the working copy of 'backend/requirements.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'render.yaml', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/TODO.md b/TODO.md[m
+[1mindex b006c75..37baaa9 100644[m
+[1m--- a/TODO.md[m
+[1m+++ b/TODO.md[m
+[36m@@ -1,14 +1,9 @@[m
+ # TODO[m
+ [m
+[31m-- [ ] Refactor `tests/test_api.py` para pasar de smoke-script a suite profesional pytest-django.[m
+[31m-- [ ] Usar fixtures para roles (admin/medico/analista) y datos base (paciente/registro).[m
+[31m-- [ ] Reemplazar `django.test.Client` por `rest_framework.test.APIClient`.[m
+[31m-- [ ] Enviar payloads JSON correctamente (vía `format='json'` o `json.dumps`).[m
+[31m-- [ ] Eliminar estado global y ejecución manual (`main()` / `django.setup()` / DB en memoria forzada).[m
+[31m-- [ ] Asegurar aislamiento: cada test independiente (sin mutaciones compartidas).[m
+[31m-- [ ] Validaciones estrictas con `rest_framework.status` y verificación de claves JSON (access/refresh/kpis/openapi).[m
+[31m-- [ ] Añadir/ajustar pruebas RBAC: admin ok; medico/analista bloqueados en acciones no permitidas (403).[m
+[31m-- [x] Ejecutar/ajustar la refactorización base de `tests/test_api.py`.[m
+[31m-- [ ] Ejecutar `pytest` y corregir fallos hasta que la suite pase.[m
+[32m+[m[32m- [x] Revisar `render.yaml` y validar `wsgi.py` real.[m
+[32m+[m[32m- [x] Corregir `startCommand` de Render para que apunte a `backend.config.wsgi:application` sin asumir una ruta inexistente.[m
+[32m+[m[32m  - `gunicorn backend.config.wsgi:application --bind 0.0.0.0:$PORT --workers 2`[m
+[32m+[m[32m- [ ] Re-deploy en Render y verificar logs de Gunicorn.[m
+ [m
+[32m+[m[32m- [ ] Validar healthcheck `GET /api/schema/` responde 200.[m
+ [m
+[1mdiff --git a/backend/requirements.txt b/backend/requirements.txt[m
+[1mindex 6a5dd56..2c5f594 100644[m
+[1m--- a/backend/requirements.txt[m
+[1m+++ b/backend/requirements.txt[m
+[36m@@ -46,3 +46,7 @@[m [mpytest-cov[m
+ [m
+ # ── Calidad de Código ─────────────────────────────────────────────────────────[m
+ flake8[m
+[32m+[m[32mcelery==5.4.0[m
+[32m+[m[32mgunicorn==23.0.0[m
+[32m+[m[32mredis==5.2.1[m
+[41m+[m
+[1mdiff --git a/render.yaml b/render.yaml[m
+[1mindex 97b3a28..ed8cd45 100644[m
+[1m--- a/render.yaml[m
+[1m+++ b/render.yaml[m
+[36m@@ -11,7 +11,8 @@[m [mservices:[m
+       cd backend && python manage.py migrate --noinput[m
+       cd backend && python manage.py collectstatic --noinput[m
+     startCommand: |[m
+[31m-      cd backend && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2[m
+[32m+[m[32m      gunicorn backend.config.wsgi:application --bind 0.0.0.0:$PORT --workers 2[m
+[32m+[m
+     envVars:[m
+       - key: DJANGO_SETTINGS_MODULE[m
+         value: config.settings.production[m

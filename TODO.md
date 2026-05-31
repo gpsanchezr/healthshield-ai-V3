@@ -1,14 +1,9 @@
 # TODO
 
-- [ ] Refactor `tests/test_api.py` para pasar de smoke-script a suite profesional pytest-django.
-- [ ] Usar fixtures para roles (admin/medico/analista) y datos base (paciente/registro).
-- [ ] Reemplazar `django.test.Client` por `rest_framework.test.APIClient`.
-- [ ] Enviar payloads JSON correctamente (vía `format='json'` o `json.dumps`).
-- [ ] Eliminar estado global y ejecución manual (`main()` / `django.setup()` / DB en memoria forzada).
-- [ ] Asegurar aislamiento: cada test independiente (sin mutaciones compartidas).
-- [ ] Validaciones estrictas con `rest_framework.status` y verificación de claves JSON (access/refresh/kpis/openapi).
-- [ ] Añadir/ajustar pruebas RBAC: admin ok; medico/analista bloqueados en acciones no permitidas (403).
-- [x] Ejecutar/ajustar la refactorización base de `tests/test_api.py`.
-- [ ] Ejecutar `pytest` y corregir fallos hasta que la suite pase.
+- [x] Revisar `render.yaml` y validar `wsgi.py` real.
+- [x] Corregir `startCommand` de Render para que apunte a `backend.config.wsgi:application` sin asumir una ruta inexistente.
+  - `gunicorn backend.config.wsgi:application --bind 0.0.0.0:$PORT --workers 2`
+- [ ] Re-deploy en Render y verificar logs de Gunicorn.
 
+- [ ] Validar healthcheck `GET /api/schema/` responde 200.
 
