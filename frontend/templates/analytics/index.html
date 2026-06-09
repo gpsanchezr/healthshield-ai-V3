@@ -1,0 +1,506 @@
+{% extends "base.html" %}
+{% block title %}Analítica Clínica — HealthShield AI{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+  <div>
+    <h3 class="fw-bold mb-0"><i class="fas fa-chart-line me-2 text-primary"></i>Analítica Clínica Avanzada</h3>
+    <p class="text-muted mb-0 mt-1">Estadísticas descriptivas, segmentaciones y correlaciones sobre los datos clínicos reales.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <select id="tendenciaSelector" class="form-select form-select-sm shadow-sm" style="width:160px" onchange="loadTendencia()">
+      <option value="glucosa">Glucosa</option>
+      <option value="imc">IMC</option>
+      <option value="presion_sistolica">Presión</option>
+      <option value="colesterol">Colesterol</option>
+      <option value="temperatura">Temperatura</option>
+    </select>
+    <button class="btn btn-primary btn-sm shadow-sm" onclick="loadAll()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Actualizar
+    </button>
+  </div>
+</div>
+
+<!-- ── KPI Summary Bar ──────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4" id="statsBar">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-primary fw-bold fs-2 mb-0" id="st-total">—</div>
+      <small class="text-muted">Registros analizados</small>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-danger fw-bold fs-2 mb-0" id="st-criticos">—</div>
+      <small class="text-muted">Pacientes críticos</small>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-warning fw-bold fs-2 mb-0" id="st-hipert">—</div>
+      <small class="text-muted">Hipertensos</small>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-info fw-bold fs-2 mb-0" id="st-diab">—</div>
+      <small class="text-muted">Diabéticos</small>
+    </div>
+  </div>
+</div>
+
+<!-- ── Row 1: Distribución + Segmentación Sexo + IMC por Edad ──────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="fas fa-chart-pie text-primary"></i>Distribución por Nivel de Riesgo
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <canvas id="riskDistributionChart" height="240"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="bi bi-gender-ambiguous text-info"></i>Distribución por Sexo
+      </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <canvas id="sexoChart" height="240"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="fas fa-chart-bar text-warning"></i>IMC Promedio por Rango Etario
+      </div>
+      <div class="card-body">
+        <canvas id="ageImcChart" height="240"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Row 2: Scatter + Tendencia Temporal ──────────────────────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="fas fa-cloud-showers-heavy text-primary"></i>Glucosa vs Presión Sistólica
+        <span class="badge bg-light text-muted ms-auto small">Correlación clínica</span>
+      </div>
+      <div class="card-body">
+        <canvas id="glucosePressureChart" height="260"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="bi bi-graph-up-arrow text-success"></i>Tendencia Clínica Mensual
+        <span class="badge bg-primary ms-auto" id="tendenciaLabel">Glucosa</span>
+      </div>
+      <div class="card-body">
+        <canvas id="tendenciaChart" height="240"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Row 3: Top Diagnósticos + Segmentación IMC ───────────────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="bi bi-clipboard2-pulse text-danger"></i>Top 10 Diagnósticos Frecuentes
+      </div>
+      <div class="card-body">
+        <canvas id="diagChart" height="280"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="fas fa-weight text-warning"></i>Clasificación por IMC (OMS)
+      </div>
+      <div class="card-body">
+        <canvas id="imcClasChart" height="280"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Row 4: Correlación Heatmap + Estadística Descriptiva ─────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="fas fa-th text-danger"></i>Matriz de Correlación de Pearson
+        <span class="badge bg-light text-muted ms-auto small">Variables clínicas</span>
+      </div>
+      <div class="card-body p-3">
+        <canvas id="heatmapCanvas" style="width:100%;max-height:380px;"></canvas>
+        <p class="text-muted small text-center mt-2 mb-0">
+          <i class="bi bi-info-circle me-1"></i>Valores cercanos a ±1 indican fuerte correlación lineal.
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-semibold d-flex align-items-center gap-2 py-3">
+        <i class="bi bi-calculator text-info"></i>Estadística Descriptiva
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" id="statsTable">
+            <thead class="table-primary">
+              <tr>
+                <th class="ps-3">Variable</th>
+                <th>Media</th>
+                <th>Mediana</th>
+                <th>Desv. Std</th>
+                <th>Min</th>
+                <th>Max</th>
+              </tr>
+            </thead>
+            <tbody id="statsBody">
+              <tr><td colspan="6" class="text-center py-3 text-muted">
+                <div class="spinner-border spinner-border-sm me-2"></div>Calculando...
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const C = {
+  bajo:    '#22c55e', medio: '#fbbf24', alto: '#fb923c', critico: '#ef4444',
+  blue:    '#2563eb', green: '#16a34a', yellow:'#facc15', slate: '#64748b',
+  indigo:  '#6366f1', pink: '#ec4899', teal: '#14b8a6', orange: '#f97316',
+};
+
+function q(url) {
+  return fetch(url, { headers: authHeaders() })
+    .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+    .catch(e => { console.warn('Analytics error:', url, e); return null; });
+}
+
+// ── KPI bar ────────────────────────────────────────────────────────────────
+async function loadKPIs() {
+  const d = await q('/api/analytics/kpis/');
+  if (!d) return;
+  document.getElementById('st-total').textContent    = (d.total_registros   || 0).toLocaleString('es-CO');
+  document.getElementById('st-criticos').textContent = (d.pacientes_criticos || 0).toLocaleString('es-CO');
+  document.getElementById('st-hipert').textContent   = (d.pacientes_hipertensos || 0).toLocaleString('es-CO');
+  document.getElementById('st-diab').textContent     = (d.pacientes_diabeticos  || 0).toLocaleString('es-CO');
+}
+
+// ── Chart helpers ──────────────────────────────────────────────────────────
+let _charts = {};
+function mkChart(id, config) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (_charts[id]) _charts[id].destroy();
+  _charts[id] = new Chart(el, config);
+}
+
+// ── 1. Distribución de riesgo ──────────────────────────────────────────────
+async function loadRisk() {
+  const d = await q('/api/analytics/riesgo-distribucion/');
+  if (!d) return;
+  mkChart('riskDistributionChart', {
+    type: 'doughnut',
+    data: {
+      labels: d.labels || [],
+      datasets: [{ data: d.data || [],
+        backgroundColor:[C.bajo, C.medio, C.alto, C.critico],
+        hoverOffset:10, borderWidth:0 }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, cutout:'62%',
+      plugins: { legend:{ position:'bottom', labels:{ usePointStyle:true, pointStyle:'circle', padding:16 }},
+                 tooltip:{ callbacks:{ label: ctx => `${ctx.label}: ${ctx.formattedValue} pacientes` }}}
+    }
+  });
+}
+
+// ── 2. Sexo ────────────────────────────────────────────────────────────────
+async function loadSexo() {
+  const d = await q('/api/analytics/segmentacion/?por=sexo');
+  if (!d) return;
+  const datos = d.datos || [];
+  const labels = datos.map(x => x.paciente__sexo === 'M' ? '♂ Masculino' : '♀ Femenino');
+  const vals   = datos.map(x => x.total);
+  mkChart('sexoChart', {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: vals, backgroundColor:[C.blue, C.pink], hoverOffset:8, borderWidth:0 }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, cutout:'55%',
+      plugins: { legend:{ position:'bottom', labels:{ usePointStyle:true, pointStyle:'circle', padding:16 }},
+                 tooltip:{ callbacks:{ label: ctx => `${ctx.label}: ${ctx.formattedValue}` }}}
+    }
+  });
+}
+
+// ── 3. IMC por edad ────────────────────────────────────────────────────────
+async function loadAgeImc() {
+  const d = await q('/api/analytics/edad-imc/');
+  if (!d) return;
+  mkChart('ageImcChart', {
+    type:'bar',
+    data:{ labels: d.labels||[], datasets:[{
+      label:'IMC promedio', data: d.data||[],
+      backgroundColor:[C.blue, C.green, C.yellow], borderRadius:10, maxBarThickness:42
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ grid:{ display:false } },
+        y:{ beginAtZero:true, grid:{ color:'rgba(15,23,42,.06)' }, title:{ display:true, text:'IMC' } }
+      }
+    }
+  });
+}
+
+// ── 4. Scatter glucosa / presión ───────────────────────────────────────────
+async function loadScatter() {
+  const d = await q('/api/analytics/glucosa-presion/');
+  if (!d) return;
+  mkChart('glucosePressureChart', {
+    type:'scatter',
+    data:{ datasets:[{
+      label:'Lecturas clínicas', data:(d.puntos||[]).slice(0,800),
+      backgroundColor:'rgba(37,99,235,.3)', borderColor:C.blue, pointRadius:4, pointHoverRadius:6
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false }, tooltip:{ callbacks:{
+        label: ({raw}) => `Glucosa: ${raw.x} mg/dL | P.Sist.: ${raw.y} mmHg`
+      }}},
+      scales:{
+        x:{ title:{ display:true, text:'Glucosa (mg/dL)' }, grid:{ color:'rgba(15,23,42,.06)' } },
+        y:{ title:{ display:true, text:'Presión Sistólica (mmHg)' }, grid:{ color:'rgba(15,23,42,.06)' } }
+      }
+    }
+  });
+}
+
+// ── 5. Tendencia temporal ──────────────────────────────────────────────────
+async function loadTendencia() {
+  const campo = document.getElementById('tendenciaSelector').value;
+  const names = { glucosa:'Glucosa',imc:'IMC',presion_sistolica:'Presión Sistólica',
+                  colesterol:'Colesterol',temperatura:'Temperatura' };
+  document.getElementById('tendenciaLabel').textContent = names[campo] || campo;
+  const d = await q(`/api/analytics/tendencia-clinica/?campo=${campo}`);
+  if (!d || !d.datos.length) return;
+  const labels = d.datos.map(x => x.mes_label);
+  mkChart('tendenciaChart', {
+    type:'line',
+    data:{ labels, datasets:[
+      { label:'Promedio', data: d.datos.map(x=>x.promedio),
+        borderColor:C.blue, backgroundColor:'rgba(37,99,235,.1)',
+        fill:true, tension:.4, pointRadius:4, pointHoverRadius:7 },
+      { label:'Máximo', data: d.datos.map(x=>x.maximo),
+        borderColor:C.critico, borderDash:[5,5], pointRadius:2, fill:false, tension:.4 },
+      { label:'Mínimo', data: d.datos.map(x=>x.minimo),
+        borderColor:C.bajo, borderDash:[5,5], pointRadius:2, fill:false, tension:.4 }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, padding:16 }} },
+      scales:{
+        x:{ grid:{ display:false } },
+        y:{ grid:{ color:'rgba(15,23,42,.06)' } }
+      }
+    }
+  });
+}
+
+// ── 6. Top diagnósticos ────────────────────────────────────────────────────
+async function loadDiag() {
+  const d = await q('/api/analytics/segmentacion/?por=diagnostico');
+  if (!d) return;
+  const datos = (d.datos||[]).slice(0,10);
+  mkChart('diagChart', {
+    type:'bar',
+    data:{
+      labels: datos.map(x => x.diagnostico_preliminar||'Sin datos'),
+      datasets:[{ label:'Pacientes', data: datos.map(x=>x.total),
+        backgroundColor: datos.map((_,i) => [C.blue,C.green,C.yellow,C.orange,C.pink,
+                                             C.teal,C.indigo,C.critico,C.slate,C.medio][i%10]),
+        borderRadius:8, maxBarThickness:36 }]
+    },
+    options:{
+      indexAxis:'y',
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales:{
+        x:{ grid:{ color:'rgba(15,23,42,.06)' }, ticks:{ stepSize:1 } },
+        y:{ grid:{ display:false }, ticks:{ font:{ size:11 } } }
+      }
+    }
+  });
+}
+
+// ── 7. IMC clasificación (OMS) ─────────────────────────────────────────────
+async function loadImcClas() {
+  const d = await q('/api/analytics/segmentacion/?por=imc');
+  if (!d) return;
+  const datos = d.datos || [];
+  const colMap = {'Bajo peso':C.yellow,'Normal':C.bajo,'Sobrepeso':C.orange,'Obesidad':C.critico};
+  mkChart('imcClasChart', {
+    type:'bar',
+    data:{
+      labels: datos.map(x=>x.clasificacion_imc),
+      datasets:[{
+        label:'Pacientes', data: datos.map(x=>x.total),
+        backgroundColor: datos.map(x=>colMap[x.clasificacion_imc]||C.slate),
+        borderRadius:10, maxBarThickness:52
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false },
+        tooltip:{ callbacks:{ footer: (items) => {
+          const d2 = datos[items[0].dataIndex];
+          return d2 ? `Críticos: ${d2.criticos||0} | Altos: ${d2.alto||0}\nGlucosa prom: ${d2.avg_glucosa}` : '';
+        }}}
+      },
+      scales:{
+        x:{ grid:{ display:false } },
+        y:{ grid:{ color:'rgba(15,23,42,.06)' }, title:{ display:true, text:'Pacientes' } }
+      }
+    }
+  });
+}
+
+// ── 8. Heatmap correlación Pearson ─────────────────────────────────────────
+async function loadHeatmap() {
+  const d = await q('/api/analytics/correlacion/');
+  if (!d || !d.variables || !d.matriz) return;
+
+  const canvas  = document.getElementById('heatmapCanvas');
+  if (!canvas) return;
+  const vars    = d.labels || d.variables;
+  const matrix  = d.matriz;
+  const n       = vars.length;
+  const isDark  = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+
+  const pad     = { top:32, right:10, bottom:90, left:115 };
+  const totalW  = Math.max(420, canvas.parentElement.clientWidth - 24);
+  const cellSz  = Math.floor(Math.min((totalW - pad.left - pad.right) / n, 52));
+  const W       = pad.left + cellSz * n + pad.right;
+  const H       = pad.top  + cellSz * n + pad.bottom;
+
+  canvas.width  = W;
+  canvas.height = H;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  function heatColor(v) {
+    const r = v < 0 ? Math.round(59  + (1+v)*( 240-59 )) : 240;
+    const g = v < 0 ? Math.round(130 + (1+v)*( 240-130)) : Math.round(240 - v*100);
+    const b = v < 0 ? 246 : Math.round(246 - v*160);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  // Draw cells
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const val = matrix[i][j];
+      ctx.fillStyle = heatColor(val);
+      ctx.fillRect(pad.left + j*cellSz, pad.top + i*cellSz, cellSz-1, cellSz-1);
+      ctx.fillStyle = Math.abs(val) > 0.55 ? '#fff' : (isDark ? '#ddd' : '#222');
+      ctx.font = `bold ${Math.max(9, Math.floor(cellSz*0.28))}px sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(val.toFixed(2), pad.left + j*cellSz + cellSz/2, pad.top + i*cellSz + cellSz/2);
+    }
+  }
+  // Row labels
+  ctx.fillStyle = isDark ? '#ccc' : '#444';
+  ctx.font = `${Math.max(9, Math.floor(cellSz*0.27))}px sans-serif`;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  vars.forEach((v,i) => ctx.fillText(v, pad.left-6, pad.top + i*cellSz + cellSz/2));
+  // Col labels (rotated)
+  ctx.save();
+  ctx.translate(pad.left, H - pad.bottom + 8);
+  ctx.font = `${Math.max(9, Math.floor(cellSz*0.27))}px sans-serif`;
+  ctx.textAlign = 'right'; ctx.fillStyle = isDark ? '#ccc' : '#444';
+  vars.forEach((v,j) => {
+    ctx.save();
+    ctx.translate(j*cellSz + cellSz/2, 0);
+    ctx.rotate(-Math.PI/4);
+    ctx.fillText(v, 0, 0);
+    ctx.restore();
+  });
+  ctx.restore();
+  // Axis titles
+  ctx.fillStyle = isDark ? '#888' : '#666';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Variables →', W/2, H-6);
+  ctx.save();
+  ctx.translate(10, H/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText('Variables ↓', 0, 0);
+  ctx.restore();
+}
+
+// ── 9. Estadística descriptiva ─────────────────────────────────────────────
+const CAMPOS = ['glucosa','imc','presion_sistolica','presion_diastolica',
+                'frecuencia_cardiaca','colesterol','saturacion_oxigeno','temperatura'];
+const LABELS = ['Glucosa','IMC','P. Sistólica','P. Diastólica',
+                'Frec. Cardíaca','Colesterol','Sat. O₂','Temperatura'];
+
+async function loadStats() {
+  const tbody = document.getElementById('statsBody');
+  const rows = await Promise.all(CAMPOS.map(c =>
+    q(`/api/analytics/estadistica/?campo=${c}`)
+  ));
+  tbody.innerHTML = rows.map((d,i) => {
+    if (!d) return `<tr><td class="ps-3">${LABELS[i]}</td><td colspan="5" class="text-muted">—</td></tr>`;
+    return `<tr>
+      <td class="ps-3 fw-semibold">${LABELS[i]}</td>
+      <td>${(d.media||0).toFixed(1)}</td>
+      <td>${(d.mediana||0).toFixed(1)}</td>
+      <td>${(d.desv_std||0).toFixed(1)}</td>
+      <td class="text-success">${(d.minimo||0).toFixed(1)}</td>
+      <td class="text-danger">${(d.maximo||0).toFixed(1)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Load all ────────────────────────────────────────────────────────────────
+async function loadAll() {
+  await loadKPIs();
+  loadRisk();
+  loadSexo();
+  loadAgeImc();
+  loadScatter();
+  loadTendencia();
+  loadDiag();
+  loadImcClas();
+  loadHeatmap();
+  loadStats();
+}
+
+document.addEventListener('DOMContentLoaded', loadAll);
+</script>
+{% endblock %}

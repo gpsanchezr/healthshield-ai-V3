@@ -1,0 +1,92 @@
+# HealthShield AI — Despliegue en Render.com
+# https://render.com/docs/yaml-spec
+#
+# PASOS RÁPIDOS:
+# 1. Conecta este repo en https://dashboard.render.com/new/blueprint
+# 2. Render detecta este archivo automáticamente
+# 3. Agrega manualmente en cada servicio:
+#      ANTHROPIC_API_KEY  (opcional - para chatbot)
+#      GEMINI_API_KEY     (obligatorio - para chatbot IA)
+
+services:
+  # ── Servidor Web principal (ASGI — soporta HTTP + WebSockets) ──────────────
+  - type: web
+    name: healthshield-ai
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: |
+      pip install -r backend/requirements.txt
+      cd backend && python manage.py migrate --noinput
+      cd backend && python manage.py collectstatic --noinput
+      cd backend && python manage.py shell -c "
+      from apps.authentication.models import UsuarioClinico
+      roles=[('admin','Admin123!','administrador'),('medico','Medico123!','medico'),('analista','Analista123!','analista')]
+      [UsuarioClinico.objects.get_or_create(username=u, defaults={'rol':r,'email':f'{u}@healthshield.ai'})[0].set_password(p) or UsuarioClinico.objects.filter(username=u).update(rol=r) for u,p,r in roles]
+      print('Usuarios OK')
+      "
+    startCommand: cd backend && daphne -b 0.0.0.0 -p $PORT config.asgi:application
+    healthCheckPath: /api/schema/
+
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: healthshield-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: healthshield-redis
+          type: redis
+          property: connectionString
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com,localhost,127.0.0.1"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "http://localhost:8000"
+      - key: GEMINI_API_KEY
+        sync: false        # ← Ingresar manualmente en el Dashboard de Render
+      - key: ANTHROPIC_API_KEY
+        sync: false        # ← Opcional
+
+  # ── Celery Worker (ETL asíncrono + tareas programadas) ─────────────────────
+  - type: worker
+    name: healthshield-celery
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && celery -A config worker --loglevel=info --concurrency=1
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: healthshield-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: healthshield-redis
+          type: redis
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          name: healthshield-ai
+          type: web
+          envVarKey: SECRET_KEY
+
+  # ── Redis (broker Celery + channel layer WebSockets) ───────────────────────
+  - type: redis
+    name: healthshield-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+
+# ── PostgreSQL ─────────────────────────────────────────────────────────────────
+databases:
+  - name: healthshield-db
+    databaseName: healthshield_db
+    plan: free
+    region: oregon

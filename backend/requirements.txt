@@ -1,0 +1,54 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║     HealthShield AI — Dependencias Python                   ║
+# ║     Python 3.12+  |  MySQL + SQLite soportados              ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+# ── Framework ─────────────────────────────────────────────────────────────────
+Django
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+drf-spectacular
+
+# ── Base de Datos ─────────────────────────────────────────────────────────────
+mysqlclient          # MySQL/MariaDB (XAMPP/WAMP/LAMP) — OBLIGATORIO para MySQL
+psycopg2-binary      # PostgreSQL (alternativa cloud)
+dj-database-url
+
+# ── ETL & Datos ───────────────────────────────────────────────────────────────
+pandas
+numpy
+google-generativeai
+openpyxl
+xlrd
+
+# ── Machine Learning ──────────────────────────────────────────────────────────
+scikit-learn
+joblib
+
+# ── Reportes ──────────────────────────────────────────────────────────────────
+reportlab
+XlsxWriter
+
+# ── Tareas Asíncronas (Celery + Redis — opcional) ─────────────────────────────
+django-celery-results
+
+# ── Filtros y Utilidades ──────────────────────────────────────────────────────
+django-filter
+whitenoise
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest
+pytest-django
+pytest-cov
+
+# ── Calidad de Código ─────────────────────────────────────────────────────────
+flake8
+celery==5.4.0
+gunicorn==23.0.0
+redis==5.2.1
+
+channels==4.1.0
+channels-redis==4.2.0
+daphne==4.1.2
+asgiref>=3.8.0

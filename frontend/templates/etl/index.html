@@ -1,0 +1,386 @@
+{% extends "base.html" %}
+{% block title %}ETL Pipeline — HealthShield AI{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0"><i class="bi bi-arrow-repeat me-2 text-primary"></i>Motor ETL</h3>
+</div>
+<div class="row g-4">
+  <!-- Panel Ejecutar ETL -->
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold"><i class="bi bi-upload me-2 text-primary"></i>Ejecutar Pipeline ETL</div>
+      <div class="card-body">
+        <p class="text-muted small">Sube un archivo CSV o Excel para ejecutar el pipeline completo de limpieza y transformación.</p>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Archivo (CSV o Excel)</label>
+          <input type="file" class="form-control" id="archivoEtl" accept=".csv,.xlsx,.xls">
+        </div>
+        <button class="btn btn-primary w-100" onclick="runETL()" id="btnEtl">
+          <i class="bi bi-play-circle me-2"></i>Iniciar ETL
+        </button>
+        <div id="etlProgress" class="d-none mt-3">
+          <div class="progress mb-2"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:50%" id="etlProgressBar"></div></div>
+          <p class="text-muted small text-center">Ejecutando pipeline ETL...</p>
+        </div>
+        <div id="etlResult" class="d-none mt-3"></div>
+      </div>
+    </div>
+  </div>
+  <!-- Simulador Live -->
+  <div class="col-md-6" id="seccionSimulador">
+    <div class="card border-0 shadow-sm h-100 border-warning border-opacity-50">
+      <div class="card-header bg-transparent fw-bold"><i class="bi bi-lightning-charge me-2 text-warning"></i>Simulador Live — Inyección de Datos</div>
+      <div class="card-body">
+        <p class="text-muted small">Genera registros sintéticos con errores intencionales y ejecuta el pipeline en tiempo real. Solo disponible para Administradores.</p>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Cantidad de registros a simular</label>
+          <select class="form-select" id="simCount">
+            <option value="5">5 registros (demo rápida)</option>
+            <option value="50" selected>50 registros</option>
+            <option value="100">100 registros</option>
+            <option value="200">200 registros</option>
+          </select>
+        </div>
+        <button class="btn btn-warning w-100 fw-bold" onclick="simularDatos()" id="btnSim" style="display:none">
+          <i class="bi bi-robot me-2"></i>Simular Ingreso de Datos
+        </button>
+        <div id="simResult" class="d-none mt-3"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Historial ETL -->
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-bold"><i class="bi bi-clock-history me-2 text-primary"></i>Historial de Ejecuciones ETL</span>
+    <button class="btn btn-outline-primary btn-sm" onclick="loadHistorial()"><i class="bi bi-arrow-clockwise"></i></button>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead class="table-light"><tr>
+          <th>#</th><th>Fecha</th><th>Tipo</th><th>Extraídos</th><th>Procesados</th>
+          <th>Rechazados</th><th>Duración</th><th>Quality Score</th><th>Estado</th><th>Reporte</th>
+        </tr></thead>
+        <tbody id="historialBody"><tr><td colspan="10" class="text-center text-muted py-3">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+<!-- ETL Health Check: Evolución del Quality Score -->
+<div class="card border-0 shadow-sm mt-4">
+  <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+    <span class="fw-bold"><i class="bi bi-heart-pulse me-2 text-primary"></i>ETL Health Check — Evolución del Quality Score</span>
+    <button class="btn btn-outline-primary btn-sm" onclick="loadHealthChart()">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+  <div class="row g-0">
+    <div class="col-md-8 p-3">
+      <canvas id="etlHealthChart" height="160"></canvas>
+    </div>
+    <div class="col-md-4 p-3 border-start" id="etlHealthStats">
+      <p class="text-muted small text-center pt-4">Cargando estadísticas...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Quality Report -->
+<div class="modal fade" id="qrModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="bi bi-clipboard2-data me-2"></i>Data Quality Report</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="qrBody">Cargando...</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── ETL con polling de progreso ─────────────────────────────────────────────
+async function readApiResponse(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try { return JSON.parse(text); }
+  catch(e) { return {error: text}; }
+}
+
+function apiErrorMessage(data, fallback) {
+  return data.error || data.detail || data.errores?.join(', ') || fallback;
+}
+
+async function runETL(){
+  const file = document.getElementById('archivoEtl').files[0];
+  if (!file) { alert('Selecciona un archivo primero.'); return; }
+
+  const btn = document.getElementById('btnEtl');
+  btn.disabled = true;
+  document.getElementById('etlProgress').classList.remove('d-none');
+  document.getElementById('etlResult').classList.add('d-none');
+
+  const fd = new FormData();
+  fd.append('archivo', file);
+
+  try {
+    // Intentar primero el endpoint async (requiere Redis/Celery)
+    const r = await fetch('/api/etl/run-async/', {
+      method: 'POST',
+      headers: authHeaders(false),
+      credentials: 'same-origin',
+      body: fd,
+    });
+    const d = await readApiResponse(r);
+
+    if (r.ok && d.task_id) {
+      // Modo async: hacer polling cada 1.5s
+      await pollETLTask(d.task_id);
+    } else if (r.status >= 500 || /celery|redis|broker|connection/i.test(d.error || d.detail || '')) {
+      // Fallback síncrono si Celery no está disponible
+      await runETLSync(file);
+    } else {
+      showETLError(apiErrorMessage(d, 'Error iniciando ETL'));
+      btn.disabled = false;
+    }
+  } catch(e) {
+    // Fallback síncrono en caso de error de red
+    await runETLSync(file);
+  }
+}
+
+async function runETLSync(file) {
+  // Modo síncrono (sin Celery)
+  const fd = new FormData(); fd.append('archivo', file);
+  const r = await fetch('/api/etl/run/', {
+    method: 'POST',
+    headers: authHeaders(false),
+    credentials: 'same-origin',
+    body: fd,
+  });
+  const d = await readApiResponse(r);
+  document.getElementById('etlProgress').classList.add('d-none');
+  if (r.ok) {
+    showETLSuccess(d.report, d.advertencias);
+    loadHistorial();
+  } else {
+    showETLError(apiErrorMessage(d, 'ETL fallido'));
+  }
+  document.getElementById('btnEtl').disabled = false;
+}
+
+async function pollETLTask(taskId) {
+  const progressBar = document.querySelector('#etlProgress .progress-bar');
+  const progressText = document.querySelector('#etlProgress p');
+  let intentos = 0;
+  const MAX_INTENTOS = 60; // 90 segundos máximo
+
+  while (intentos < MAX_INTENTOS) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const r = await fetch(`/api/etl/task/${taskId}/`, {headers: authHeaders()});
+      const d = await r.json();
+
+      if (progressBar) progressBar.style.width = (d.progreso || 50) + '%';
+      if (progressText) progressText.textContent = d.paso || 'Procesando...';
+
+      if (d.estado === 'SUCCESS') {
+        document.getElementById('etlProgress').classList.add('d-none');
+        showETLSuccess(d.resultado?.report);
+        loadHistorial();
+        document.getElementById('btnEtl').disabled = false;
+        return;
+      }
+      if (d.estado === 'FAILURE') {
+        showETLError(d.error || 'ETL falló en background');
+        document.getElementById('btnEtl').disabled = false;
+        return;
+      }
+    } catch(e) { /* seguir polling */ }
+    intentos++;
+  }
+  showETLError('Tiempo de espera agotado. Revisa el historial ETL.');
+  document.getElementById('btnEtl').disabled = false;
+}
+
+function showETLSuccess(rpt, advertencias) {
+  const res = document.getElementById('etlResult');
+  res.classList.remove('d-none');
+  const warns = advertencias?.length
+    ? `<hr><small class="text-warning">⚠ Advertencias: ${advertencias.join(' · ')}</small>`
+    : '';
+  res.innerHTML = `<div class="alert alert-success">
+    <strong>✅ ETL completado en ${rpt?.duracion_segundos||'?'}s</strong><br>
+    📊 Registros procesados: <strong>${rpt?.despues?.total_registros||'?'}</strong><br>
+    🧹 Duplicados eliminados: <strong>${rpt?.acciones_correctivas?.duplicados_eliminados||0}</strong><br>
+    🔧 Nulos imputados: <strong>${rpt?.acciones_correctivas?.nulos_imputados||0}</strong><br>
+    🔬 Outliers corregidos: <strong>${rpt?.acciones_correctivas?.outliers_corregidos||0}</strong><br>
+    ⭐ Quality Score: <strong>${rpt?.quality_score} — ${rpt?.clasificacion}</strong>
+    ${warns}
+  </div>`;
+}
+
+function showETLError(msg) {
+  document.getElementById('etlProgress').classList.add('d-none');
+  const res = document.getElementById('etlResult');
+  res.classList.remove('d-none');
+  res.innerHTML = `<div class="alert alert-danger">❌ Error: ${msg}</div>`;
+}
+
+async function simularDatos(){
+  const count=document.getElementById('simCount').value;
+  const btn=document.getElementById('btnSim');btn.disabled=true;
+  btn.innerHTML='<span class="spinner-border spinner-border-sm me-2"></span>Simulando...';
+  const r=await fetch('/api/etl/simular/',{method:'POST',headers:authHeaders(),body:JSON.stringify({count:parseInt(count)})});
+  const d=await r.json();
+  const res=document.getElementById('simResult');res.classList.remove('d-none');
+  if(r.ok){
+    const rpt=d.report;
+    res.innerHTML=`<div class="alert alert-warning">
+      <strong>⚡ Simulación completada</strong><br>
+      Registros inyectados y procesados: <strong>${rpt.despues.total_registros}</strong><br>
+      Quality Score: <strong>${rpt.quality_score} (${rpt.clasificacion})</strong>
+    </div>`;
+    loadHistorial();
+  } else {
+    res.innerHTML=`<div class="alert alert-danger">❌ ${d.error||'Error en simulación. Verifica que tienes rol Administrador.'}</div>`;
+  }
+  btn.disabled=false;btn.innerHTML='<i class="bi bi-robot me-2"></i>Simular Ingreso de Datos';
+}
+
+async function loadHistorial(){
+  const r=await fetch('/api/etl/historial/',{headers:authHeaders()});
+  const d=await r.json();
+  const rows=d.results||d.historial||[];
+  const tbody=document.getElementById('historialBody');
+  if(!rows.length){tbody.innerHTML='<tr><td colspan="10" class="text-center text-muted py-3">Sin ejecuciones registradas</td></tr>';return;}
+  tbody.innerHTML=rows.map(e=>`
+    <tr>
+      <td>${e.id}</td>
+      <td><small>${new Date(e.fecha_inicio).toLocaleString('es-CO')}</small></td>
+      <td><span class="badge bg-${e.tipo==='simulacion'?'warning text-dark':e.tipo==='automatico'?'info':'primary'}">${e.tipo}</span></td>
+      <td>${e.registros_extraidos}</td>
+      <td class="text-success fw-bold">${e.registros_procesados}</td>
+      <td class="text-danger">${e.registros_rechazados}</td>
+      <td>${e.duracion_segundos?e.duracion_segundos+'s':'—'}</td>
+      <td>${e.quality_score?`<span class="badge bg-${e.quality_score>=90?'success':e.quality_score>=75?'primary':'warning text-dark'}">${e.quality_score}</span>`:'—'}</td>
+      <td><span class="badge bg-${e.estado==='completado'?'success':e.estado==='fallido'?'danger':'secondary'}">${e.estado}</span></td>
+      <td><button class="btn btn-outline-info btn-sm" onclick="verReporte(${e.id})"><i class="bi bi-file-text"></i></button></td>
+    </tr>`).join('');
+}
+
+async function verReporte(id){
+  const r=await fetch(`/api/etl/calidad/${id}/`,{headers:authHeaders()});
+  const d=await r.json();
+  const modal=new bootstrap.Modal(document.getElementById('qrModal'));
+  const ac=d.acciones_correctivas||{};
+  document.getElementById('qrBody').innerHTML=`
+    <div class="row g-3 mb-3">
+      <div class="col-6"><div class="card text-center border-0 bg-light"><div class="card-body">
+        <h6 class="text-muted">Quality Score</h6>
+        <h2 class="fw-bold text-${d.quality_score>=90?'success':d.quality_score>=75?'primary':'warning'}">${d.quality_score}</h2>
+        <small>${d.clasificacion}</small></div></div></div>
+      <div class="col-6"><div class="card text-center border-0 bg-light"><div class="card-body">
+        <h6 class="text-muted">Registros Recuperados</h6>
+        <h2 class="fw-bold">${d.porcentaje_recuperados}%</h2>
+        <small class="text-muted">Duración: ${d.duracion_segundos}s</small></div></div></div>
+    </div>
+    <h6 class="fw-bold mb-3">Acciones Correctivas Aplicadas</h6>
+    <div class="row g-2">
+      ${Object.entries(ac).map(([k,v])=>`<div class="col-6 col-md-4"><div class="d-flex justify-content-between align-items-center p-2 bg-light rounded"><small>${k.replace(/_/g,' ')}</small><span class="badge bg-primary">${v}</span></div></div>`).join('')}
+    </div>
+    <div class="row mt-3 g-2">
+      <div class="col-6"><strong>Registros antes:</strong> ${d.antes?.total_registros||0} <span class="text-muted">(${d.antes?.total_nulos||0} nulos)</span></div>
+      <div class="col-6"><strong>Registros después:</strong> ${d.despues?.total_registros||0} <span class="text-success">(0 nulos)</span></div>
+    </div>`;
+  modal.show();
+}
+
+loadHistorial();
+
+// ── ETL Health Check ─────────────────────────────────────────────────────────
+let etlHealthChart;
+async function loadHealthChart() {
+  try {
+    const r = await fetch('/api/etl/calidad-historica/?limite=10', {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos || [];
+    if (!datos.length) return;
+
+    const labels   = datos.map(x => x.fecha);
+    const scores   = datos.map(x => x.quality_score);
+    const rechazados = datos.map(x => x.registros_rechazados);
+
+    if (etlHealthChart) etlHealthChart.destroy();
+    etlHealthChart = new Chart(document.getElementById('etlHealthChart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Quality Score', data: scores,
+            borderColor: '#27ae60', backgroundColor: 'rgba(39,174,96,.15)',
+            fill: true, tension: 0.4, yAxisID: 'y', borderWidth: 2.5, pointRadius: 5 },
+          { label: 'Rechazados', data: rechazados,
+            borderColor: '#e74c3c', borderDash: [5,4],
+            fill: false, tension: 0.3, yAxisID: 'y2', borderWidth: 1.5 },
+        ]
+      },
+      options: {
+        scales: {
+          y:  { min: 0, max: 100, title: { display: true, text: 'Quality Score (0-100)' } },
+          y2: { position: 'right', beginAtZero: true, title: { display: true, text: 'Rechazados' } }
+        },
+        plugins: { legend: { position: 'top' } }
+      }
+    });
+
+    // Stats panel
+    const TEND_ICON = { mejorando: '📈', empeorando: '📉', estable: '➡️' };
+    const TEND_COLOR = { mejorando: 'success', empeorando: 'danger', estable: 'secondary' };
+    document.getElementById('etlHealthStats').innerHTML = `
+      <div class="text-center">
+        <div class="mb-3">
+          <h6 class="text-muted mb-1">Score Promedio</h6>
+          <h2 class="fw-bold text-success">${d.promedio_score}</h2>
+        </div>
+        <div class="mb-3">
+          <span class="badge bg-success me-2">Mejor: ${d.mejor_score}</span>
+          <span class="badge bg-danger">Peor: ${d.peor_score}</span>
+        </div>
+        <div>
+          <span class="badge bg-${TEND_COLOR[d.tendencia]||'secondary'}">
+            ${TEND_ICON[d.tendencia]||'➡️'} Tendencia: ${d.tendencia}
+          </span>
+        </div>
+        <p class="text-muted small mt-2">${d.total_ejecuciones} ejecuciones analizadas</p>
+      </div>`;
+  } catch(e) { console.warn('ETL Health Chart error:', e); }
+}
+loadHealthChart();
+
+</script>
+
+<script>
+// Simulador Live: ocultar completamente para médicos
+document.addEventListener('DOMContentLoaded', () => {
+  const u = JSON.parse(localStorage.getItem('user') || '{}');
+  const rol = (u.rol || '').toLowerCase();
+
+  // Si es médico, ocultar toda la tarjeta del simulador
+  if (rol === 'medico') {
+    const sec = document.getElementById('seccionSimulador');
+    if (sec) sec.style.display = 'none';
+    return;
+  }
+
+  // Administrador / staff: mostrar botón
+  if (rol === 'administrador' || u.is_staff || u.is_superuser) {
+    const btn = document.getElementById('btnSim');
+    if (btn) btn.style.display = '';
+  }
+});
+</script>
+{% endblock %}
