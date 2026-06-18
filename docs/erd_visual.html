@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>HealthShield AI — ERD</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; background: #f8f9fa; }
+    h1 { color: #1a3a5c; }
+    .mermaid { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.1); }
+  </style>
+</head>
+<body>
+  <h1>🛡️ HealthShield AI — Modelo Relacional (ERD)</h1>
+  <div class="mermaid">
+erDiagram
+    USUARIOS ||--o{ EJECUCIONES_ETL : "ejecuta"
+    USUARIOS ||--o{ ALERTAS : "confirma"
+    EJECUCIONES_ETL ||--o{ LOGS_ETL : "genera"
+    EJECUCIONES_ETL ||--o{ REGISTROS_CLINICOS : "carga"
+    PACIENTES ||--o{ REGISTROS_CLINICOS : "tiene"
+    PACIENTES ||--o{ ALERTAS : "genera"
+    PACIENTES ||--o{ PREDICCIONES : "recibe"
+    MODELOS_ML ||--o{ PREDICCIONES : "produce"
+
+    USUARIOS { bigint id PK; varchar username UK; varchar rol; bool is_active }
+    EJECUCIONES_ETL { bigint id PK; varchar estado; int registros_procesados; decimal quality_score }
+    PACIENTES { bigint id PK; int id_original UK; varchar nombres; smallint edad; varchar sexo }
+    REGISTROS_CLINICOS { bigint id PK; decimal imc; decimal glucosa; smallint presion_sistolica; varchar riesgo_enfermedad }
+    LOGS_ETL { bigint id PK; varchar nivel; text mensaje; varchar campo_afectado }
+    ALERTAS { bigint id PK; varchar nivel_urgencia; text descripcion; timestamp fecha_vista }
+    MODELOS_ML { bigint id PK; varchar algoritmo; decimal accuracy; decimal f1_score; bool activo }
+    PREDICCIONES { bigint id PK; varchar riesgo_predicho; decimal probabilidad; jsonb factores_clave }
+  </div>
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'default' });</script>
+</body>
+</html>

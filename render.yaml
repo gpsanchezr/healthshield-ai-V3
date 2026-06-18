@@ -1,0 +1,90 @@
+# HealthShield AI V3 — Despliegue en Render.com
+# 1. Conectar repo en render.com → New → Blueprint
+# 2. Agregar GEMINI_API_KEY en el Dashboard
+
+services:
+  - type: web
+    name: healthshield-ai-v3
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: |
+      pip install -r backend/requirements.txt
+      cd backend && python manage.py migrate --noinput
+      cd backend && python manage.py collectstatic --noinput
+      cd backend && python manage.py shell -c "
+      from apps.authentication.models import UsuarioClinico
+      users = [
+        ('admin','Admin123!','administrador','Administrador','HealthShield'),
+        ('medico','Medico123!','medico','Doctor','Sanchez'),
+        ('analista','Analista123!','analista','Ana','Rodriguez'),
+      ]
+      for u,p,r,f,l in users:
+        if not UsuarioClinico.objects.filter(username=u).exists():
+          fn = UsuarioClinico.objects.create_superuser if r=='administrador' else UsuarioClinico.objects.create_user
+          fn(username=u,email=f'{u}@healthshield.ai',password=p,rol=r,first_name=f,last_name=l)
+          print(f'Usuario {u} creado')
+      "
+      cd backend && python manage.py run_etl --simulate --count 300 || true
+      cd backend && python manage.py train_model --algorithm random_forest || true
+    startCommand: cd backend && daphne -b 0.0.0.0 -p $PORT config.asgi:application
+    healthCheckPath: /api/schema/
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: healthshield-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: healthshield-redis
+          type: redis
+          property: connectionString
+      - key: ALLOWED_HOSTS
+        value: ".onrender.com,localhost,127.0.0.1"
+      - key: CORS_ALLOWED_ORIGINS
+        value: "http://localhost:8000"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  - type: worker
+    name: healthshield-celery
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && celery -A config worker --loglevel=info --concurrency=1
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: healthshield-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: healthshield-redis
+          type: redis
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          name: healthshield-ai-v3
+          type: web
+          envVarKey: SECRET_KEY
+
+  - type: redis
+    name: healthshield-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  - name: healthshield-db
+    databaseName: healthshield_db
+    plan: free
+    region: oregon

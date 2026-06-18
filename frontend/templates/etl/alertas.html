@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+{% block title %}Alertas Críticas — HealthShield AI{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-0"><i class="bi bi-bell-fill me-2 text-danger"></i>Triage de Alertas Clínicas</h3>
+    <p class="text-muted mb-0 small mt-1">
+      <span id="wsStatus" class="badge bg-secondary me-1">⚡ Conectando...</span>
+      Panel de pacientes en estado crítico o de alto riesgo.
+    </p>
+  </div>
+  <button class="btn btn-warning shadow-sm" onclick="detectarCriticos()">
+    <i class="bi bi-search-heart me-2"></i>Detectar Nuevos
+  </button>
+</div>
+
+<style>
+  .alerta-prioritaria { animation: alertaPulse 2s ease-in-out 3; }
+  .alerta-critica td { background: rgba(248,113,113,0.06); }
+  .alerta-alta td    { background: rgba(251,191,36,0.06); }
+  @keyframes alertaPulse {
+    0%,100% { box-shadow: none; }
+    50%     { box-shadow: 0 0 0 4px rgba(239,68,68,.25); }
+  }
+  #alertasContainer tr { transition: opacity .4s; }
+  .ws-live  { background:#16a34a; }
+  .ws-poll  { background:#d97706; }
+  .ws-error { background:#dc2626; }
+</style>
+
+<div id="alertasBanner"></div>
+<div id="alertasContainer">
+  <div class="text-center py-5">
+    <div class="spinner-border text-danger mb-3"></div>
+    <p class="text-muted">Cargando alertas...</p>
+  </div>
+</div>
+
+<!-- Modal detalles -->
+<div class="modal fade" id="alertaDetalleModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header" id="modalHeader">
+        <h5 class="modal-title fw-bold" id="alertaDetalleModalLabel">Detalle de Alerta</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4" id="alertaDetalleBody"></div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-success" id="btnMarcarModal" onclick="">
+          <i class="bi bi-check-lg me-1"></i>Marcar como Revisada
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+// ── Configuración ────────────────────────────────────────────────────────────
+const NIVEL_CONFIG = {
+  critica: { color:'danger',  icon:'bi-exclamation-octagon-fill', label:'Crítica',  pulse:true  },
+  alta:    { color:'warning', icon:'bi-exclamation-triangle-fill', label:'Alta',    pulse:true  },
+  media:   { color:'info',    icon:'bi-info-circle-fill',          label:'Media',   pulse:false },
+  baja:    { color:'success', icon:'bi-check-circle-fill',         label:'Baja',    pulse:false },
+};
+const PRIORITY = { critica:0, alta:1, media:2, baja:3 };
+
+let alertaMap   = {};
+let alertaCache = new Set();
+let isFirstLoad = true;
+let wsSocket    = null;
+let wsAlive     = false;
+let pollingInt  = null;
+let currentAlertaId = null;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function fmtDate(v) {
+  if (!v) return '—';
+  const d = new Date(v);
+  return d.toLocaleDateString('es-CO',{day:'2-digit',month:'2-digit',year:'numeric'})
+    + ' · ' + d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+}
+
+function setWsStatus(state) {
+  const el = document.getElementById('wsStatus');
+  if (!el) return;
+  const map = {
+    live:  ['⚡ Tiempo Real (WebSocket)', 'ws-live'],
+    poll:  ['🔄 Modo Polling (10s)',       'ws-poll'],
+    error: ['⚠ Sin conexión',             'ws-error'],
+  };
+  const [txt, cls] = map[state] || map.error;
+  el.textContent = txt;
+  el.className   = `badge me-1 ${cls}`;
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function buildRow(a, highlight=false) {
+  const cfg = NIVEL_CONFIG[a.nivel_urgencia] || NIVEL_CONFIG.alta;
+  const pulseClass  = highlight && cfg.pulse ? ' alerta-prioritaria' : '';
+  const levelClass  = a.nivel_urgencia === 'critica' ? 'alerta-critica' : (a.nivel_urgencia === 'alta' ? 'alerta-alta' : '');
+  return `
+  <tr id="row-${a.id}" class="${levelClass}${pulseClass}">
+    <td style="width:130px">
+      <span class="badge bg-${cfg.color} rounded-pill px-3 py-2 text-uppercase">
+        <i class="bi ${cfg.icon} me-1"></i>${cfg.label}
+      </span>
+    </td>
+    <td>
+      <div class="fw-semibold">${a.paciente_nombre}</div>
+      <small class="text-muted">ID ${a.paciente} · ${a.tipo_alerta || ''}</small>
+    </td>
+    <td class="text-nowrap text-muted small">${fmtDate(a.fecha_alerta)}</td>
+    <td style="width:200px">
+      <div class="btn-group w-100" role="group">
+        <button class="btn btn-sm btn-outline-${cfg.color}" onclick="marcarVista(${a.id})">
+          <i class="bi bi-check-lg me-1"></i>Revisada
+        </button>
+        <button class="btn btn-sm btn-${cfg.color}" onclick="verDetalles(${a.id})">
+          <i class="bi bi-info-circle me-1"></i>Ver
+        </button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+function renderTabla(items) {
+  const el = document.getElementById('alertasContainer');
+  if (!items.length) {
+    el.innerHTML = `
+      <div class="alert alert-success d-flex align-items-center gap-3 shadow-sm">
+        <i class="bi bi-check-circle-fill fs-2 text-success"></i>
+        <div><strong>¡Sin alertas activas!</strong><br>
+        <small class="text-muted">Todos los pacientes están dentro de parámetros normales.</small></div>
+      </div>`;
+    return;
+  }
+
+  const sorted = [...items].sort((a,b) => (PRIORITY[a.nivel_urgencia]??99)-(PRIORITY[b.nivel_urgencia]??99) || new Date(b.fecha_alerta)-new Date(a.fecha_alerta));
+  sorted.forEach(a => alertaMap[a.id] = a);
+
+  el.innerHTML = `
+    <div class="alert alert-danger d-flex align-items-center gap-3 mb-3 border-0 shadow-sm">
+      <i class="bi bi-exclamation-triangle-fill fs-3"></i>
+      <div><strong>${sorted.length} alerta(s) pendiente(s)</strong>
+      <div class="small text-muted">Ordenadas por prioridad clínica</div></div>
+    </div>
+    <div class="table-responsive rounded-3 shadow-sm border bg-body">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light text-uppercase small">
+          <tr><th>Prioridad</th><th>Paciente</th><th>Fecha/Hora</th><th>Acciones</th></tr>
+        </thead>
+        <tbody id="alertasTbody">${sorted.map(a => buildRow(a)).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+function insertNewAlerts(newItems) {
+  const tbody = document.getElementById('alertasTbody');
+  if (!tbody) { renderTabla(Object.values(alertaMap)); return; }
+  const sorted = [...newItems].sort((a,b) => (PRIORITY[a.nivel_urgencia]??99)-(PRIORITY[b.nivel_urgencia]??99));
+  sorted.forEach(a => { alertaMap[a.id] = a; alertaCache.add(a.id); });
+  tbody.insertAdjacentHTML('afterbegin', sorted.map(a => buildRow(a, true)).join(''));
+  // Update banner
+  const total = tbody.querySelectorAll('tr').length;
+  document.querySelector('.alert-danger strong')?.closest('.alert-danger')
+    ?.querySelector('strong')?.replaceWith(Object.assign(document.createElement('strong'), {textContent: `${total} alerta(s) pendiente(s)`}));
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function fetchAlertas() {
+  const r = await fetch('/api/etl/alertas/', {headers: authHeaders()});
+  if (!r.ok) return null;
+  const d = await r.json();
+  return d.results || [];
+}
+
+async function pollAlertas() {
+  const items = await fetchAlertas().catch(()=>null);
+  if (!items) return;
+  const ids = new Set(items.map(a=>a.id));
+  if (isFirstLoad) {
+    items.forEach(a => alertaCache.add(a.id));
+    renderTabla(items);
+    isFirstLoad = false;
+    return;
+  }
+  const newOnes = items.filter(a => !alertaCache.has(a.id));
+  if (newOnes.length) insertNewAlerts(newOnes);
+  alertaCache.forEach(id => { if (!ids.has(id)) alertaCache.delete(id); });
+  newOnes.forEach(a => alertaCache.add(a.id));
+}
+
+function startPolling() {
+  if (pollingInt) return;
+  setWsStatus('poll');
+  pollAlertas();
+  pollingInt = setInterval(pollAlertas, 10000);
+}
+
+function stopPolling() {
+  if (pollingInt) { clearInterval(pollingInt); pollingInt = null; }
+}
+
+// ── WebSockets ────────────────────────────────────────────────────────────────
+function connectWS() {
+  const token = localStorage.getItem('access_token');
+  if (!token) { startPolling(); return; }
+
+  const proto  = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl  = `${proto}//${location.host}/ws/alertas/?token=${encodeURIComponent(token)}`;
+
+  try {
+    wsSocket = new WebSocket(wsUrl);
+  } catch(e) { startPolling(); return; }
+
+  wsSocket.onopen = () => {
+    wsAlive = true;
+    setWsStatus('live');
+    stopPolling();
+    // Load initial data via REST (WS only pushes incremental updates)
+    pollAlertas();
+  };
+
+  wsSocket.onmessage = ({data}) => {
+    const msg = JSON.parse(data);
+    if (msg.type === 'nueva_alerta' && msg.alerta) {
+      if (!alertaCache.has(msg.alerta.id)) {
+        if (!isFirstLoad) {
+          insertNewAlerts([msg.alerta]);
+        } else {
+          alertaCache.add(msg.alerta.id);
+        }
+        // Update navbar banner count
+        const badge = document.getElementById('alertaCount');
+        if (badge && msg.count) badge.textContent = msg.count;
+        const banner = document.getElementById('alertaBanner');
+        if (banner && msg.count > 0) banner.classList.remove('d-none');
+      }
+    } else if (msg.type === 'conteo') {
+      const badge = document.getElementById('alertaCount');
+      if (badge) badge.textContent = msg.count;
+    }
+  };
+
+  wsSocket.onclose = ({code}) => {
+    wsAlive = false;
+    if (code !== 4001) {                       // 4001 = token inválido, no reconectar
+      setWsStatus('poll');
+      startPolling();
+      setTimeout(connectWS, 8000);             // reintentar en 8 s
+    } else {
+      setWsStatus('error');
+    }
+  };
+
+  wsSocket.onerror = () => {
+    wsAlive = false;
+    startPolling();
+  };
+}
+
+// ── Acciones ──────────────────────────────────────────────────────────────────
+async function marcarVista(id) {
+  const r = await fetch(`/api/etl/alertas/${id}/vista/`, {method:'PATCH', headers:authHeaders()});
+  if (r.ok) {
+    const row = document.getElementById(`row-${id}`);
+    if (row) { row.style.opacity='0.4'; setTimeout(()=>row.remove(), 500); }
+    alertaCache.delete(id);
+    delete alertaMap[id];
+    // Close modal if open
+    bootstrap.Modal.getInstance(document.getElementById('alertaDetalleModal'))?.hide();
+    // Update WS conteo (notify server side is tricky — just refresh count locally)
+    const badge = document.getElementById('alertaCount');
+    if (badge) {
+      const c = Math.max(0, parseInt(badge.textContent||'0') - 1);
+      badge.textContent = c;
+      if (c === 0) document.getElementById('alertaBanner')?.classList.add('d-none');
+    }
+  }
+}
+
+function verDetalles(id) {
+  const a = alertaMap[id];
+  if (!a) return;
+  const cfg = NIVEL_CONFIG[a.nivel_urgencia] || NIVEL_CONFIG.alta;
+  currentAlertaId = id;
+
+  document.getElementById('alertaDetalleModalLabel').textContent = `Alerta ${cfg.label} — ${a.paciente_nombre}`;
+  document.getElementById('modalHeader').className = `modal-header bg-${cfg.color} ${['danger','warning'].includes(cfg.color)?'text-dark':'text-white'}`;
+  document.getElementById('alertaDetalleBody').innerHTML = `
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card border-0 bg-body-secondary p-3 rounded-3">
+          <h6 class="fw-bold text-${cfg.color} mb-2"><i class="bi bi-person-circle me-1"></i>Datos del Paciente</h6>
+          <p class="mb-1"><strong>Nombre:</strong> ${a.paciente_nombre}</p>
+          <p class="mb-1"><strong>ID Paciente:</strong> ${a.paciente}</p>
+          <p class="mb-0"><strong>Tipo de alerta:</strong> ${a.tipo_alerta || 'No especificado'}</p>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card border-0 bg-body-secondary p-3 rounded-3">
+          <h6 class="fw-bold mb-2"><i class="bi bi-clock-history me-1"></i>Temporalidad</h6>
+          <p class="mb-1"><strong>Registrada:</strong> ${fmtDate(a.fecha_alerta)}</p>
+          <p class="mb-0"><strong>Estado:</strong>
+            <span class="badge bg-${cfg.color} ms-1">${cfg.label}</span>
+          </p>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="alert alert-${cfg.color} border-0 mb-0">
+          <i class="bi ${cfg.icon} me-2"></i>
+          Esta alerta fue generada automáticamente por el motor de detección
+          de pacientes críticos de HealthShield AI.
+          <a href="/pacientes/${a.paciente}/" class="alert-link ms-2">Ver historial del paciente →</a>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('btnMarcarModal').onclick = () => marcarVista(id);
+  new bootstrap.Modal(document.getElementById('alertaDetalleModal')).show();
+}
+
+async function detectarCriticos() {
+  const btn = event.target.closest('button');
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Detectando...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/analytics/detectar/', {method:'POST', headers:authHeaders()});
+    const d = await r.json();
+    const n = d.alertas_creadas ?? d.nuevas_alertas ?? 0;
+    // Show toast
+    showToast(n > 0 ? `✅ ${n} nueva(s) alerta(s) generada(s)` : '✅ Sin nuevas alertas críticas', n > 0 ? 'warning' : 'success');
+    if (!wsAlive) pollAlertas();   // if polling, refresh immediately
+  } catch(e) {
+    showToast('Error al detectar críticos', 'danger');
+  } finally {
+    btn.innerHTML = orig; btn.disabled = false;
+  }
+}
+
+function showToast(msg, type='info') {
+  const id = 'toast_' + Date.now();
+  const html = `
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100">
+    <div id="${id}" class="toast align-items-center text-bg-${type} border-0 show" role="alert">
+      <div class="d-flex">
+        <div class="toast-body fw-semibold">${msg}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  setTimeout(() => document.getElementById(id)?.closest('.position-fixed')?.remove(), 4000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  connectWS();     // intenta WebSocket, cae a polling si falla
+});
+</script>
+{% endblock %}

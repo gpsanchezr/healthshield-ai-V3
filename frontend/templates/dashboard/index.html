@@ -1,0 +1,591 @@
+
+{% extends "base.html" %}
+{% block title %}Dashboard — HealthShield AI{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h3 class="mb-0 fw-bold"><i class="bi bi-speedometer2 me-2 text-primary"></i>Panel de Control Clínico</h3>
+    <small class="text-muted">Última actualización: <span id="lastUpdate">—</span></small>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <!-- Buscador global de pacientes -->
+    <div class="position-relative">
+      <div class="input-group shadow-sm" style="min-width:300px;">
+        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-primary"></i></span>
+        <input type="text" id="globalSearch" class="form-control border-start-0"
+               placeholder="Buscar paciente por nombre o cédula...">
+      </div>
+      <div id="searchResults" class="list-group shadow-lg position-absolute w-100 bg-white rounded-3 mt-1 border"
+           style="display:none;z-index:1050;max-height:350px;overflow-y:auto;"></div>
+    </div>
+    <button class="btn btn-primary btn-sm shadow-sm" onclick="loadDashboard()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Actualizar
+    </button>
+  </div>
+</div>
+
+<!-- ─── TARJETAS KPI PRINCIPALES ──────────────────────────────────────────── -->
+<div class="row g-3 mb-3" id="kpiCards">
+  <div class="col-6 col-md-3">
+    <a href="/pacientes/drilldown/?filtro=total" class="card text-center border-0 shadow-sm h-100 kpi-card text-decoration-none">
+      <div class="card-body py-3">
+        <i class="bi bi-people-fill fs-2 text-primary mb-1"></i>
+        <div class="text-muted small">Total Registros</div>
+        <h2 class="fw-bold text-dark mb-0" id="kpi-total">—</h2>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/pacientes/drilldown/?filtro=criticos" class="card text-center border-0 shadow-sm h-100 kpi-card text-decoration-none border-danger border-2">
+      <div class="card-body py-3">
+        <i class="bi bi-exclamation-octagon-fill fs-2 text-danger mb-1"></i>
+        <div class="text-muted small">Pacientes Críticos</div>
+        <h2 class="fw-bold text-danger mb-0" id="kpi-criticos">—</h2>
+        <small class="text-muted">Clic para ver quiénes son</small>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/pacientes/drilldown/?filtro=hipertensos" class="card text-center border-0 shadow-sm h-100 kpi-card text-decoration-none">
+      <div class="card-body py-3">
+        <i class="bi bi-heart-pulse-fill fs-2 text-warning mb-1"></i>
+        <div class="text-muted small">Hipertensos</div>
+        <h2 class="fw-bold text-warning mb-0" id="kpi-hiper">—</h2>
+        <small class="text-muted">Presión > 140 mmHg</small>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/pacientes/drilldown/?filtro=diabeticos" class="card text-center border-0 shadow-sm h-100 kpi-card text-decoration-none">
+      <div class="card-body py-3">
+        <i class="bi bi-droplet-fill fs-2 text-info mb-1"></i>
+        <div class="text-muted small">Diabéticos</div>
+        <h2 class="fw-bold text-info mb-0" id="kpi-diabeticos">—</h2>
+        <small class="text-muted">Glucosa > 125 mg/dL</small>
+      </div>
+    </a>
+  </div>
+</div>
+
+<!-- ─── SEGUNDA FILA DE TARJETAS ──────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <a href="/pacientes/drilldown/?filtro=fumadores" class="card border-0 shadow-sm text-center kpi-card text-decoration-none">
+      <div class="card-body py-3">
+        <i class="bi bi-lungs-fill fs-3 text-success mb-1"></i>
+        <div class="text-muted small">Fumadores</div>
+        <h3 class="fw-bold text-success mb-0" id="kpi-fumadores">—</h3>
+        <small class="text-muted">Ver listado completo</small>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/pacientes/drilldown/?filtro=diabeticos" class="card border-0 shadow-sm text-center kpi-card text-decoration-none">
+      <div class="card-body py-3">
+        <i class="bi bi-clipboard-data fs-3 text-purple mb-1" style="color:#6f42c1"></i>
+        <div class="text-muted small">Glucosa Promedio</div>
+        <h3 class="fw-bold text-dark mb-0" id="kpi-glucosa">—</h3>
+        <small class="text-muted">mg/dL</small>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/pacientes/drilldown/?filtro=riesgo" class="card border-0 shadow-sm text-center kpi-card text-decoration-none">
+      <div class="card-body py-3">
+        <i class="bi bi-activity fs-3 text-primary mb-1"></i>
+        <div class="text-muted small">Riesgo Promedio</div>
+        <h3 class="fw-bold mb-0" id="kpi-riesgo-promedio">—</h3>
+        <small class="badge" id="kpi-riesgo-label"></small>
+      </div>
+    </a>
+  </div>
+  <div class="col-6 col-md-3">
+    <a href="/pacientes/drilldown/?filtro=alertas" class="card border-0 shadow-sm text-center kpi-card text-decoration-none" style="background:rgba(220,53,69,.07)">
+      <div class="card-body py-3">
+        <i class="bi bi-bell-fill fs-3 text-danger mb-1"></i>
+        <div class="text-muted small">Alertas Sin Ver</div>
+        <h3 class="fw-bold text-danger mb-0" id="kpi-alertas">—</h3>
+        <small class="text-muted">Requieren atención</small>
+      </div>
+    </a>
+  </div>
+</div>
+
+<!-- ─── PERFIL FITNESS ─────────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white border-0 pt-3 pb-0">
+    <h6 class="fw-bold text-primary mb-0">
+      <i class="bi bi-bicycle me-2"></i>Perfil Fitness — Actividad Física de Pacientes
+    </h6>
+    <small class="text-muted">Clic en cada categoría para ver la lista completa de pacientes</small>
+  </div>
+  <div class="card-body pt-2">
+    <div class="row g-2 text-center">
+      <div class="col-6 col-md-3">
+        <a href="/pacientes/drilldown/?filtro=fitness_sedentario" class="kpi-card d-block p-3 rounded-3 text-decoration-none" style="background:rgba(220,53,69,.08);border:1.5px solid rgba(220,53,69,.2);">
+          <div class="fs-1">🪑</div>
+          <h4 class="fw-bold text-danger mb-0" id="kpi-fit-sedentario">—</h4>
+          <small class="fw-bold text-danger">Sedentarios</small>
+          <div class="text-muted" style="font-size:.75rem;">Sin actividad física</div>
+        </a>
+      </div>
+      <div class="col-6 col-md-3">
+        <a href="/pacientes/drilldown/?filtro=fitness_baja" class="kpi-card d-block p-3 rounded-3 text-decoration-none" style="background:rgba(255,193,7,.08);border:1.5px solid rgba(255,193,7,.3);">
+          <div class="fs-1">🚶</div>
+          <h4 class="fw-bold text-warning mb-0" id="kpi-fit-baja">—</h4>
+          <small class="fw-bold text-warning">Actividad Baja</small>
+          <div class="text-muted" style="font-size:.75rem;">Caminata ocasional</div>
+        </a>
+      </div>
+      <div class="col-6 col-md-3">
+        <a href="/pacientes/drilldown/?filtro=fitness_media" class="kpi-card d-block p-3 rounded-3 text-decoration-none" style="background:rgba(13,202,240,.08);border:1.5px solid rgba(13,202,240,.25);">
+          <div class="fs-1">🏃</div>
+          <h4 class="fw-bold text-info mb-0" id="kpi-fit-media">—</h4>
+          <small class="fw-bold text-info">Actividad Media</small>
+          <div class="text-muted" style="font-size:.75rem;">Ejercicio regular</div>
+        </a>
+      </div>
+      <div class="col-6 col-md-3">
+        <a href="/pacientes/drilldown/?filtro=fitness_alta" class="kpi-card d-block p-3 rounded-3 text-decoration-none" style="background:rgba(25,135,84,.08);border:1.5px solid rgba(25,135,84,.25);">
+          <div class="fs-1">🏋️</div>
+          <h4 class="fw-bold text-success mb-0" id="kpi-fit-alta">—</h4>
+          <small class="fw-bold text-success">Actividad Alta</small>
+          <div class="text-muted" style="font-size:.75rem;">Deportistas</div>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── GRÁFICAS CLÍNICAS ──────────────────────────────────────────────────── -->
+<div class="row g-4 mb-4">
+  <div class="col-md-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-pie-chart me-2 text-primary"></i>Distribución de Riesgo
+      </div>
+      <div class="card-body d-flex justify-content-center align-items-center">
+        <canvas id="riesgoChart" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-bar-chart me-2 text-primary"></i>Top Diagnósticos Preliminares
+      </div>
+      <div class="card-body">
+        <canvas id="diagChart" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-4" id="colSexo">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-gender-ambiguous me-2 text-primary"></i>Distribución por Sexo
+      </div>
+      <div class="card-body d-flex justify-content-center align-items-center">
+        <canvas id="chartSexo" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-person-bounding-box me-2 text-primary"></i>IMC por Categoría
+      </div>
+      <div class="card-body">
+        <canvas id="imcChart" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-people me-2 text-primary"></i>Pacientes por Grupo de Edad
+      </div>
+      <div class="card-body">
+        <canvas id="edadChart" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Panel ETL (solo Admin/Analista) -->
+{# BUG FIX: usar == para comparación exacta de roles en lugar de 'in' string #}
+<div id="adminAnalystSection" style="display:none">
+<div class="row g-4 mb-4">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-graph-up me-2 text-primary"></i>Tendencia ETL (últimas ejecuciones)
+        <span class="badge bg-warning text-dark ms-2">Solo Administrador/Analista</span>
+      </div>
+      <div class="card-body">
+        <canvas id="tendenciaChart" height="160"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+
+<!-- ─── CHATBOT ASISTENTE MÉDICO (Solo Médico) ────────────────────────────── -->
+<div id="chatbotSection" class="card border-0 shadow-sm mb-4 border-primary" style="display: none; border-left:4px solid #0d6efd!important;">
+
+  <div class="card-header bg-white border-0 pt-3">
+    <div class="d-flex align-items-center gap-2">
+      <div class="rounded-circle bg-primary d-flex align-items-center justify-content-center" style="width:36px;height:36px;">
+        <i class="bi bi-robot text-white"></i>
+      </div>
+      <div>
+        <h6 class="fw-bold mb-0 text-primary">Asistente Clínico IA</h6>
+        <small class="text-muted">Consulta la base de datos clínica en lenguaje natural · Solo visible para Médicos</small>
+      </div>
+      <span class="badge bg-success ms-auto">🟢 Activo</span>
+    </div>
+  </div>
+  <div class="card-body">
+    <!-- Sugerencias rápidas -->
+    <div class="mb-3 d-flex flex-wrap gap-2">
+      <small class="text-muted me-1 align-self-center">Consultas rápidas:</small>
+      <button class="btn btn-outline-primary btn-sm rounded-pill" onclick="setChatQuery('¿Qué pacientes están propensos a sufrir diabetes?')">🩸 Diabéticos</button>
+      <button class="btn btn-outline-danger btn-sm rounded-pill" onclick="setChatQuery('¿Quiénes son los pacientes críticos?')">🚨 Críticos</button>
+      <button class="btn btn-outline-warning btn-sm rounded-pill" onclick="setChatQuery('Lista los pacientes fumadores')">🫁 Fumadores</button>
+      <button class="btn btn-outline-info btn-sm rounded-pill" onclick="setChatQuery('¿Cuántos pacientes son hipertensos?')">❤️ Hipertensos</button>
+      <button class="btn btn-outline-secondary btn-sm rounded-pill" onclick="setChatQuery('Dame un resumen estadístico')">📊 Resumen</button>
+    </div>
+
+    <!-- Historial de chat -->
+    <div id="chatBox" class="rounded-3 p-3 mb-3" style="background:#f8f9fa;height:280px;overflow-y:auto;font-size:.9rem;">
+      <div class="text-center text-muted py-4">
+        <i class="bi bi-chat-dots fs-2 d-block mb-2 text-primary opacity-50"></i>
+        <p class="mb-1 fw-bold">Hola, soy tu Asistente Clínico.</p>
+        <p class="mb-0">Puedes preguntarme sobre pacientes, enfermedades y estadísticas clínicas.<br>
+        Consulto directamente la base de datos sin acceso a internet.</p>
+      </div>
+    </div>
+
+    <!-- Input de consulta -->
+    <div class="d-flex gap-2">
+      <input type="text" id="chatInput" class="form-control shadow-sm"
+             placeholder="Ej: ¿Qué pacientes están propensos a sufrir diabetes?"
+             onkeydown="if(event.key==='Enter') sendChatQuery()">
+      <button class="btn btn-primary shadow-sm px-4" onclick="sendChatQuery()" id="chatBtn">
+        <i class="bi bi-send-fill"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ─── Carga Principal del Dashboard ────────────────────────────────────────
+let riesgoChart, diagChart, imcChart, tendenciaChart, sexoChart;
+
+async function loadDashboard(){
+  try {
+    const r = await fetch('/api/dashboard/kpis/', {headers: authHeaders()});
+    if(!r.ok){ window.location.href='/login/'; return; }
+    const d = await r.json();
+    const k = d.kpis;
+
+    document.getElementById('kpi-total').textContent       = k.total_registros?.toLocaleString() || '—';
+    document.getElementById('kpi-criticos').textContent    = k.pacientes_criticos || '0';
+    document.getElementById('kpi-hiper').textContent       = k.pacientes_hipertensos || '0';
+    document.getElementById('kpi-diabeticos').textContent  = k.pacientes_diabeticos || '0';
+    document.getElementById('kpi-fumadores').textContent   = k.pacientes_fumadores || '0';
+    document.getElementById('kpi-glucosa').textContent     = k.promedio_glucosa || '—';
+    document.getElementById('kpi-alertas').textContent     = k.alertas_sin_ver || '0';
+
+    const riesgoEl = document.getElementById('kpi-riesgo-promedio');
+    const riesgoLbl = document.getElementById('kpi-riesgo-label');
+    if(riesgoEl) riesgoEl.textContent = k.riesgo_promedio || '—';
+    if(riesgoLbl) {
+      riesgoLbl.textContent = k.riesgo_promedio_label || '';
+      const colorMap = {'Crítico':'bg-danger','Alto':'bg-warning text-dark','Medio':'bg-info text-dark','Bajo':'bg-success'};
+      riesgoLbl.className = 'badge ' + (colorMap[k.riesgo_promedio_label] || 'bg-secondary');
+    }
+
+    // BUG FIX: fitness fields ahora vienen del KPICalculator
+    document.getElementById('kpi-fit-sedentario').textContent = k.fitness_sedentario ?? '0';
+    document.getElementById('kpi-fit-baja').textContent       = k.fitness_baja ?? '0';
+    document.getElementById('kpi-fit-media').textContent      = k.fitness_media ?? '0';
+    document.getElementById('kpi-fit-alta').textContent       = k.fitness_alta ?? '0';
+
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('es-CO');
+    renderCharts(k);
+  } catch(e) { console.error('Error cargando dashboard:', e); }
+}
+
+function renderCharts(k){
+  // Distribución de Riesgo
+  const riesgoDist = k.distribucion_riesgo || {};
+  if(riesgoChart) riesgoChart.destroy();
+  riesgoChart = new Chart(document.getElementById('riesgoChart'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(riesgoDist),
+      datasets: [{
+        data: Object.values(riesgoDist),
+        backgroundColor: ['#28a745','#ffc107','#fd7e14','#dc3545'],
+        borderWidth: 2, hoverOffset: 8
+      }]
+    },
+    options: {
+      plugins: { legend: { position: 'bottom', labels: { padding: 16, font: { size: 13 } } } },
+      cutout: '72%'
+    }
+  });
+
+  // Top Diagnósticos
+  const diags = k.top_diagnosticos || [];
+  if(diagChart) diagChart.destroy();
+  diagChart = new Chart(document.getElementById('diagChart'), {
+    type: 'bar',
+    data: {
+      labels: diags.map(d => d.diagnostico || 'Sin diagnóstico'),
+      datasets: [{ label: 'Pacientes', data: diags.map(d => d.total),
+        backgroundColor: ['#1a3a5c','#2980b9','#3498db','#5dade2','#7fb3d3','#a9cce3','#d6eaf8','#ebf5fb'],
+        borderRadius: 6 }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.05)' } } }
+    }
+  });
+
+  // IMC
+  const imcDist = k.distribucion_imc || {};
+  if(imcChart) imcChart.destroy();
+  imcChart = new Chart(document.getElementById('imcChart'), {
+    type: 'bar',
+    data: {
+      labels: Object.keys(imcDist),
+      datasets: [{ label: 'Pacientes', data: Object.values(imcDist),
+        backgroundColor: ['#3498db','#27ae60','#f39c12','#e74c3c'], borderRadius: 8 }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  loadTendencia();
+}
+
+async function loadTendencia(){
+  try {
+    const r = await fetch('/api/dashboard/tendencia/', {headers: authHeaders()});
+    const d = await r.json();
+    const t = d.tendencia || [];
+    const el = document.getElementById('tendenciaChart');
+    if(!el) return;
+    if(tendenciaChart) tendenciaChart.destroy();
+    tendenciaChart = new Chart(el, {
+      type: 'line',
+      data: {
+        labels: t.map(x => x.fecha),
+        datasets: [
+          { label: 'Registros', data: t.map(x => x.registros),
+            borderColor: '#2980b9', backgroundColor: 'rgba(41,128,185,.1)', fill: true, tension: .4 },
+          { label: 'Quality Score', data: t.map(x => x.quality_score),
+            borderColor: '#27ae60', yAxisID: 'y2', tension: .4 }
+        ]
+      },
+      options: {
+        scales: { y: { beginAtZero: true }, y2: { position: 'right', min: 0, max: 100 } },
+        plugins: { legend: { position: 'top' } }
+      }
+    });
+  } catch(e) { /* ETL data not available yet */ }
+}
+
+// ─── Distribución por Sexo ──────────────────────────────────────────────────
+async function loadSexoChart() {
+  try {
+    const r = await fetch('/api/analytics/segmentacion/?por=sexo', {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos || [];
+    const labels = datos.map(x => x.paciente__sexo === 'F' ? '♀ Femenino' : '♂ Masculino');
+    const values = datos.map(x => x.total);
+    const sexoCanvas = document.getElementById('chartSexo');
+    if (!sexoCanvas) return;
+    if (sexoChart) sexoChart.destroy();
+    sexoChart = new Chart(sexoCanvas, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data: values,
+        backgroundColor: ['#e83e8c','#007bff'], borderWidth: 0, hoverOffset: 8 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '70%',
+        plugins: { legend: { position: 'bottom' } } }
+    });
+  } catch(e) {}
+}
+
+// ─── Segmentación por Edad ──────────────────────────────────────────────────
+async function loadEdadChart() {
+  try {
+    const r = await fetch('/api/analytics/segmentacion/?por=edad', {headers: authHeaders()});
+    const d = await r.json();
+    const datos = d.datos || [];
+    const labels = d.labels || datos.map(x => x.rango_edad || x['paciente__edad'] || '?');
+    const values = d.data   || datos.map(x => x.total);
+    if(!labels.length) return;
+    if(window._edadChart) window._edadChart.destroy();
+    window._edadChart = new Chart(document.getElementById('edadChart'), {
+      type: 'bar',
+      data: { labels, datasets: [{ label: 'Pacientes', data: values,
+        backgroundColor: ['#3498db','#27ae60','#f39c12','#e67e22','#e74c3c'], borderRadius: 6 }] },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  } catch(e) {}
+}
+
+// ─── Buscador Global de Pacientes ───────────────────────────────────────────
+const globalSearch = document.getElementById('globalSearch');
+const searchResults = document.getElementById('searchResults');
+let searchTimer;
+
+if(globalSearch) {
+  globalSearch.addEventListener('input', function() {
+    clearTimeout(searchTimer);
+    const val = this.value.trim();
+    if(val.length < 2){ searchResults.style.display = 'none'; return; }
+    searchTimer = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/pacientes/?search=${encodeURIComponent(val)}`, {headers: authHeaders()});
+        if(!r.ok) return;
+        const d = await r.json();
+        const items = d.results || [];
+        if(items.length > 0) {
+          searchResults.innerHTML = items.map(p => `
+            <a href="/pacientes/${p.id}/" class="list-group-item list-group-item-action py-3 border-bottom text-decoration-none">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <h6 class="mb-0 fw-bold text-primary">
+                  <i class="bi bi-person-badge me-2"></i>${p.nombres} ${p.apellidos}
+                </h6>
+                <span class="badge bg-light text-dark border">Cédula: ${p.id_paciente_original}</span>
+              </div>
+              <small class="text-muted">
+                <i class="bi bi-calendar me-1"></i>${p.edad} años
+                <i class="bi bi-person me-1 ms-2"></i>${p.sexo === 'F' ? '♀ Femenino' : '♂ Masculino'}
+              </small>
+            </a>
+          `).join('');
+        } else {
+          searchResults.innerHTML = '<div class="list-group-item text-muted text-center py-4"><i class="bi bi-inbox fs-3 d-block mb-2"></i>No se encontraron pacientes</div>';
+        }
+        searchResults.style.display = 'block';
+      } catch(e) {}
+    }, 350);
+  });
+  document.addEventListener('click', e => {
+    if(!globalSearch.contains(e.target) && !searchResults.contains(e.target))
+      searchResults.style.display = 'none';
+  });
+}
+
+// ─── Chatbot Asistente Médico ───────────────────────────────────────────────
+function setChatQuery(text) {
+  const input = document.getElementById('chatInput');
+  if(input){ input.value = text; input.focus(); }
+}
+
+function appendChatMsg(role, text) {
+  const box = document.getElementById('chatBox');
+  if(!box) return;
+  const isUser = role === 'user';
+  const div = document.createElement('div');
+  div.className = 'd-flex mb-3 ' + (isUser ? 'justify-content-end' : 'justify-content-start');
+  // Convert markdown-like **bold** to <strong>
+  const htmlText = text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+  div.innerHTML = `
+    <div class="px-3 py-2 rounded-3 shadow-sm" style="max-width:88%;${isUser ? 'background:#0d6efd;color:#fff;' : 'background:#fff;border:1px solid #dee2e6;'}">
+      ${!isUser ? '<small class="text-muted d-block mb-1"><i class="bi bi-robot me-1"></i>Asistente Clínico</small>' : ''}
+      ${htmlText}
+    </div>
+  `;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function sendChatQuery() {
+  const input = document.getElementById('chatInput');
+  const btn   = document.getElementById('chatBtn');
+  if(!input) return;
+  const query = input.value.trim();
+  if(!query) return;
+
+  appendChatMsg('user', query);
+  input.value = '';
+  if(btn){ btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+
+  try {
+    const r = await fetch('/api/predicciones/chatbot/', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ query })
+    });
+    const d = await r.json();
+    appendChatMsg('bot', d.respuesta || d.error || 'Sin respuesta del servidor.');
+  } catch(e) {
+    appendChatMsg('bot', '⚠️ Error de conexión. Verifica que el servidor esté activo.');
+  } finally {
+    if(btn){ btn.disabled = false; btn.innerHTML = '<i class="bi bi-send-fill"></i>'; }
+  }
+}
+
+// ─── Init ───────────────────────────────────────────────────────────────────
+loadDashboard();
+loadSexoChart();
+loadEdadChart();
+setInterval(loadDashboard, 60000);
+
+// Lógica de interfaz usando el JWT almacenado en el navegador
+const userStr = localStorage.getItem('user');
+if (userStr) {
+    const userObj = JSON.parse(userStr);
+    
+    const roleDash = (userObj.rol || '').toLowerCase();
+    // Mostrar sección de analítica solo para admin/analista
+    if (['administrador','analista'].includes(roleDash) || userObj.is_staff) {
+        const sec = document.getElementById('adminAnalystSection');
+        if (sec) {
+            sec.style.display = '';
+            // Force Chart.js to resize charts that were rendered at 0px (display:none)
+            // Use setTimeout to let the browser repaint first
+            setTimeout(() => {
+                Object.values(Chart.instances || {}).forEach(c => {
+                    try { c.resize(); } catch(e) {}
+                });
+            }, 100);
+        }
+    }
+    if (roleDash === 'medico') {
+        // Mostrar el chatbot
+        const chatbot = document.getElementById('chatbotSection');
+        if(chatbot) chatbot.style.display = 'block';
+        
+        // Ocultar gráficas vacías y expandir la de IMC para que se vea bien
+        const colSexo = document.getElementById('colSexo');
+        const colEdad = document.getElementById('colEdad');
+        const colImc = document.getElementById('colImc');
+        
+        if(colSexo) colSexo.style.display = 'none';
+        if(colEdad) colEdad.style.display = 'none';
+        if(colImc) colImc.className = 'col-md-12'; // Hace que el IMC ocupe todo el ancho
+    }
+}
+
+
+
+
+
+</script>
+{% endblock %}

@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Machine Learning — HealthShield AI{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="fw-bold mb-0"><i class="bi bi-cpu me-2 text-primary"></i>Motor de Machine Learning</h3>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#trainModal">
+    <i class="bi bi-arrow-clockwise me-2"></i>Reentrenar Modelo
+  </button>
+</div>
+
+<!-- Métricas del modelo activo -->
+<div id="modeloActivo"></div>
+
+<!-- Feature Importance -->
+<div class="row g-4 mt-2">
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-bold"><i class="bi bi-bar-chart me-2 text-primary"></i>Importancia de Variables (XAI)</div>
+      <div class="card-body"><canvas id="featureChart" height="280"></canvas></div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-bold"><i class="bi bi-grid me-2 text-primary"></i>Métricas de Evaluación</div>
+      <div class="card-body"><canvas id="metricsChart" height="280"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Entrenar -->
+<div class="modal fade" id="trainModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="bi bi-cpu me-2"></i>Entrenar Nuevo Modelo</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Algoritmo</label>
+          <select class="form-select" id="algoritmo">
+            <option value="random_forest">Random Forest (recomendado)</option>
+            <option value="logistic_regression">Regresión Logística</option>
+            <option value="decision_tree">Árbol de Decisión</option>
+          </select>
+        </div>
+        <div id="trainResult" class="d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="entrenar()" id="btnTrain"><i class="bi bi-play me-2"></i>Entrenar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confusion Matrix + Classification Report -->
+<div class="row g-4 mt-2">
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-grid me-2 text-primary"></i>Matriz de Confusión
+      </div>
+      <div class="card-body">
+        <canvas id="confusionCanvas" height="260"></canvas>
+        <p class="text-muted small text-center mt-2 mb-0">
+          Diagonal = predicciones correctas · Fuera de diagonal = errores
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent fw-bold">
+        <i class="bi bi-table me-2 text-primary"></i>Reporte por Clase
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" id="classReportTable">
+          <thead class="table-light">
+            <tr><th>Clase</th><th>Precision</th><th>Recall</th><th>F1</th><th>Soporte</th></tr>
+          </thead>
+          <tbody id="classReportBody">
+            <tr><td colspan="5" class="text-center text-muted py-3">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let featureChart, metricsChart;
+
+async function loadModelo(){
+  const r=await fetch('/api/predicciones/modelo/metricas/',{headers:authHeaders()});
+  if(!r.ok){document.getElementById('modeloActivo').innerHTML='<div class="alert alert-warning">Sin modelo activo. Entrena uno primero.</div>';return;}
+  const m=await r.json();
+  document.getElementById('modeloActivo').innerHTML=`
+    <div class="row g-3">
+      ${[['Accuracy','accuracy','success'],['Precision','precision_score','primary'],['Recall','recall','info'],['F1-Score','f1_score','warning']].map(([label,key,color])=>`
+        <div class="col-md-3"><div class="card border-0 shadow-sm text-center">
+          <div class="card-body"><h6 class="text-muted">${label}</h6>
+          <h2 class="fw-bold text-${color}">${((m[key]||0)*100).toFixed(1)}%</h2></div></div></div>`).join('')}
+    </div>
+    <div class="alert alert-info mt-3 d-flex align-items-center gap-3">
+      <i class="bi bi-info-circle-fill fs-4"></i>
+      <div><strong>${m.nombre}</strong> · Algoritmo: ${m.algoritmo} · Versión ${m.version}<br>
+      <small>Entrenado con ${m.registros_entrenamiento?.toLocaleString()||'—'} registros · ${new Date(m.entrenado_en).toLocaleString('es-CO')}</small></div>
+    </div>`;
+  renderCharts(m);
+}
+
+function renderCharts(m){
+  const fi=m.feature_importance||{};
+  const labels=Object.keys(fi).slice(0,8);
+  const values=Object.values(fi).slice(0,8).map(v=>parseFloat(v));
+  if(featureChart)featureChart.destroy();
+  featureChart=new Chart(document.getElementById('featureChart'),{
+    type:'bar',
+    data:{labels:labels.map(l=>l.replace(/_/g,' ')),datasets:[{label:'Importancia',data:values,
+      backgroundColor:values.map((_,i)=>i===0?'#e74c3c':i===1?'#e67e22':i===2?'#f39c12':'#3498db'),borderRadius:6}]},
+    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,max:Math.max(...values)*1.2}}}
+  });
+
+  const metricLabels=['Accuracy','Precision','Recall','F1-Score'];
+  const metricValues=[m.accuracy,m.precision_score,m.recall,m.f1_score].map(v=>parseFloat(v||0)*100);
+  if(metricsChart)metricsChart.destroy();
+  metricsChart=new Chart(document.getElementById('metricsChart'),{
+    type:'radar',
+    data:{labels:metricLabels,datasets:[{label:'Modelo Actual',data:metricValues,
+      borderColor:'#2980b9',backgroundColor:'rgba(41,128,185,.15)',pointBackgroundColor:'#2980b9',pointRadius:5}]},
+    options:{scales:{r:{beginAtZero:true,max:100,ticks:{callback:v=>v+'%'}}},plugins:{legend:{display:false}}}
+  });
+}
+
+async function entrenar(){
+  const btn=document.getElementById('btnTrain');
+  btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm me-2"></span>Entrenando...';
+  document.getElementById('trainResult').classList.add('d-none');
+  const alg=document.getElementById('algoritmo').value;
+  const r=await fetch('/api/predicciones/modelo/entrenar/',{method:'POST',headers:authHeaders(),body:JSON.stringify({algorithm:alg})});
+  const d=await r.json();
+  const res=document.getElementById('trainResult');res.classList.remove('d-none');
+  if(r.ok){
+    res.innerHTML=`<div class="alert alert-success">
+      ✅ Modelo entrenado exitosamente<br>
+      <strong>Accuracy: ${(d.accuracy*100).toFixed(2)}%</strong> · F1: ${(d.f1_score*100).toFixed(2)}%<br>
+      CV Accuracy: ${(d.cv_accuracy*100).toFixed(2)}%</div>`;
+    loadModelo();
+  } else {
+    res.innerHTML=`<div class="alert alert-danger">${d.error||'Error al entrenar'}</div>`;
+  }
+  btn.disabled=false;btn.innerHTML='<i class="bi bi-play me-2"></i>Entrenar';
+}
+
+loadModelo();
+
+// ── Confusion Matrix ─────────────────────────────────────────────────────────
+async function loadConfusionMatrix() {
+  try {
+    const r = await fetch('/api/predicciones/modelo/confusion-matrix/', {headers: authHeaders()});
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.confusion_matrix) return;
+
+    const cm     = d.confusion_matrix;
+    const clases = d.clases || ['Bajo','Medio','Alto','Crítico'];
+    const n      = clases.length;
+    const canvas = document.getElementById('confusionCanvas');
+    const ctx    = canvas.getContext('2d');
+    const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    const W = canvas.offsetWidth || 320;
+    const H = 260;
+    canvas.width  = W * devicePixelRatio;
+    canvas.height = H * devicePixelRatio;
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+
+    const pad  = {top: 30, left: 80, right: 20, bottom: 60};
+    const cellW = (W - pad.left - pad.right)  / n;
+    const cellH = (H - pad.top  - pad.bottom) / n;
+    const maxVal = Math.max(...cm.flat());
+
+    // Celdas
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const val      = cm[i][j];
+        const intensity = val / maxVal;
+        const isCorrect = i === j;
+        const r2 = isCorrect ? Math.round(39 + (1-intensity)*160)  : Math.round(220);
+        const g2 = isCorrect ? Math.round(174 + (1-intensity)*60)  : Math.round(Math.round(220*(1-intensity*0.7)));
+        const b2 = isCorrect ? Math.round(96 + (1-intensity)*130)  : Math.round(220*(1-intensity*0.7));
+        ctx.fillStyle = `rgb(${r2},${g2},${b2})`;
+        ctx.fillRect(pad.left + j*cellW + 1, pad.top + i*cellH + 1, cellW-2, cellH-2);
+
+        ctx.fillStyle = intensity > 0.5 ? '#fff' : (isDark ? '#eee' : '#222');
+        ctx.font = `${Math.min(cellW*0.35, 14)}px -apple-system, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(val, pad.left + j*cellW + cellW/2, pad.top + i*cellH + cellH/2);
+      }
+    }
+
+    // Labels filas (Real)
+    ctx.fillStyle = isDark ? '#aaa' : '#555';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    clases.forEach((l,i) => ctx.fillText(l, pad.left - 6, pad.top + i*cellH + cellH/2));
+
+    // Labels columnas (Predicho) — rotadas
+    ctx.save(); ctx.translate(pad.left, H - pad.bottom + 8);
+    ctx.textAlign = 'right'; ctx.font = '10px -apple-system, sans-serif';
+    clases.forEach((l,j) => {
+      ctx.save(); ctx.translate(j*cellW + cellW/2, 0);
+      ctx.rotate(-Math.PI/4); ctx.fillText(l, 0, 0); ctx.restore();
+    });
+    ctx.restore();
+
+    // Título ejes
+    ctx.fillStyle = isDark ? '#888' : '#777'; ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Predicho →', W/2, H - 8);
+    ctx.save(); ctx.translate(12, H/2); ctx.rotate(-Math.PI/2);
+    ctx.fillText('Real ↓', 0, 0); ctx.restore();
+
+    // Classification report
+    const cr = d.classification_report || {};
+    const clases_filtradas = clases.filter(c => cr[c]);
+    document.getElementById('classReportBody').innerHTML = clases_filtradas.map(c => {
+      const row = cr[c] || {};
+      const f1  = row['f1-score'] || 0;
+      const color = f1 >= 0.8 ? 'success' : f1 >= 0.6 ? 'warning' : 'danger';
+      return `<tr>
+        <td><span class="badge bg-secondary">${c}</span></td>
+        <td>${(row.precision||0).toFixed(3)}</td>
+        <td>${(row.recall||0).toFixed(3)}</td>
+        <td><span class="badge bg-${color}">${f1.toFixed(3)}</span></td>
+        <td class="text-muted">${row.support||0}</td>
+      </tr>`;
+    }).join('');
+
+    // Weighted avg
+    const wa = cr['weighted avg'] || {};
+    document.getElementById('classReportBody').innerHTML += `
+      <tr class="table-light fw-bold">
+        <td>Weighted Avg</td>
+        <td>${(wa.precision||0).toFixed(3)}</td>
+        <td>${(wa.recall||0).toFixed(3)}</td>
+        <td>${(wa['f1-score']||0).toFixed(3)}</td>
+        <td class="text-muted">${wa.support||0}</td>
+      </tr>`;
+
+  } catch(e) { console.warn('Confusion matrix no disponible:', e); }
+}
+
+loadConfusionMatrix();
+
+</script>
+{% endblock %}

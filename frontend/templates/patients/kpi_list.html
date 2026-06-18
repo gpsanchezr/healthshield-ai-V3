@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Detalle de Indicador — HealthShield AI{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <a href="/dashboard/" class="text-decoration-none text-muted mb-1 d-inline-block">
+      <i class="bi bi-arrow-left me-1"></i> Volver al Dashboard
+    </a>
+    <h3 class="mb-0 fw-bold"><i class="bi bi-card-list me-2 text-primary"></i>{{ titulo_filtro }}</h3>
+    <small class="text-muted">
+      Se encontraron <strong id="rowCount">{{ total }}</strong> pacientes en este indicador.
+    </small>
+  </div>
+  <!-- Barra de Búsqueda rápida -->
+  <div class="input-group shadow-sm" style="max-width:320px;">
+    <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+    <input type="text" id="buscadorPacientes" class="form-control border-start-0"
+           placeholder="Buscar nombre, ID o diagnóstico..." onkeyup="filtrarTabla()">
+  </div>
+</div>
+
+<!-- Resumen rápido -->
+{% if total > 0 %}
+<div class="alert alert-info border-0 shadow-sm py-2 mb-3">
+  <i class="bi bi-info-circle me-2"></i>
+  Mostrando <strong>{{ total }}</strong> registros para: <strong>{{ titulo_filtro }}</strong>.
+  Los datos provienen directamente de la base de datos del sistema.
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" id="tablaPacientes">
+        <thead class="table-primary">
+          <tr>
+            <th class="ps-3">ID / Cédula</th>
+            <th>Nombres y Apellidos</th>
+            <th>Edad</th>
+            <th>Sexo</th>
+            <th>Diagnóstico Preliminar</th>
+            <th>Nivel de Riesgo</th>
+            <th>Glucosa</th>
+            <th>Presión Arterial</th>
+            <th>IMC</th>
+            <th>Hábitos</th>
+            <th>Actividad Física</th>
+            <th class="text-center">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in registros %}
+          <tr class="paciente-row">
+            {# BUG FIX CRÍTICO: acceder a campos via r.paciente.* (eran r.nombres, r.apellidos, etc.) #}
+            <td class="ps-3 fw-bold text-secondary">
+              <small>{{ r.paciente.id_paciente_original }}</small>
+            </td>
+            <td class="fw-bold text-dark">{{ r.paciente.nombres }} {{ r.paciente.apellidos }}</td>
+            <td>{{ r.paciente.edad }} años</td>
+            <td>
+              {% if r.paciente.sexo == 'F' %}
+                <span class="badge bg-pink" style="background:#e83e8c!important;">♀ Femenino</span>
+              {% else %}
+                <span class="badge bg-primary">♂ Masculino</span>
+              {% endif %}
+            </td>
+            <td class="text-muted">{{ r.diagnostico_preliminar|default:"No especificado" }}</td>
+            <td>
+              <span class="badge rounded-pill
+                {% if r.riesgo_enfermedad == 'Crítico' %}bg-danger
+                {% elif r.riesgo_enfermedad == 'Alto' %}bg-warning text-dark
+                {% elif r.riesgo_enfermedad == 'Medio' %}bg-info text-dark
+                {% else %}bg-success{% endif %}">
+                {% if r.riesgo_enfermedad == 'Crítico' %}🚨{% elif r.riesgo_enfermedad == 'Alto' %}⚠️{% elif r.riesgo_enfermedad == 'Medio' %}🔵{% else %}✅{% endif %}
+                {{ r.riesgo_enfermedad }}
+              </span>
+            </td>
+            <td>
+              {% if r.glucosa %}
+                <span class="{% if r.glucosa > 125 %}text-danger fw-bold{% elif r.glucosa > 100 %}text-warning fw-bold{% else %}text-success{% endif %}">
+                  {{ r.glucosa|floatformat:0 }} <small class="text-muted">mg/dL</small>
+                </span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td>
+              {% if r.presion_sistolica %}
+                <span class="{% if r.presion_sistolica > 140 %}text-danger fw-bold{% else %}text-success{% endif %}">
+                  {{ r.presion_sistolica }}/{{ r.presion_diastolica|default:"—" }}
+                </span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td>
+              {% if r.imc %}
+                <span class="{% if r.imc >= 30 %}text-danger{% elif r.imc >= 25 %}text-warning{% else %}text-success{% endif %}">
+                  {{ r.imc|floatformat:1 }}
+                </span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td>
+              {% if r.fumador %}<i class="bi bi-lungs-fill text-danger me-1" title="Fumador"></i>{% endif %}
+              {% if r.consumo_alcohol %}<i class="bi bi-cup-straw text-warning me-1" title="Consume Alcohol"></i>{% endif %}
+              {% if not r.fumador and not r.consumo_alcohol %}
+                <span class="text-success"><i class="bi bi-check-circle me-1"></i>Ninguno</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="badge
+                {% if r.actividad_fisica|lower == 'alta' %}bg-success
+                {% elif r.actividad_fisica|lower == 'media' %}bg-info text-dark
+                {% elif r.actividad_fisica|lower == 'baja' %}bg-warning text-dark
+                {% else %}bg-secondary{% endif %}">
+                {{ r.actividad_fisica|default:"No registrado" }}
+              </span>
+            </td>
+            <td class="text-center">
+              {# BUG FIX: usar r.paciente.pk para la URL correcta #}
+              <a href="/pacientes/{{ r.paciente.pk }}/" class="btn btn-sm btn-outline-primary shadow-sm">
+                <i class="bi bi-eye"></i> Ver Perfil
+              </a>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="12" class="text-center py-5 text-muted">
+              <i class="bi bi-inbox fs-1 d-block mb-2 text-primary opacity-25"></i>
+              <h5>Sin resultados</h5>
+              <p class="mb-0">No hay pacientes que coincidan con el indicador <strong>{{ titulo_filtro }}</strong>.</p>
+              <a href="/dashboard/" class="btn btn-outline-primary mt-3 btn-sm">← Volver al Dashboard</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filtrarTabla() {
+  const input = document.getElementById("buscadorPacientes").value.toLowerCase();
+  const rows = document.querySelectorAll(".paciente-row");
+  let visibles = 0;
+  rows.forEach(row => {
+    const match = row.textContent.toLowerCase().includes(input);
+    row.style.display = match ? "" : "none";
+    if (match) visibles++;
+  });
+  document.getElementById("rowCount").textContent = visibles;
+}
+</script>
+{% endblock %}

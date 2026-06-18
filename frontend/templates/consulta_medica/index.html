@@ -1,0 +1,549 @@
+{% extends "base.html" %}
+{% block title %}Consulta Médica — HealthShield AI{% endblock %}
+{% block content %}
+
+<style>
+.patient-card { cursor:pointer; transition:all .2s; border:2px solid transparent; }
+.patient-card:hover { border-color:#0d6efd; transform:translateY(-1px); box-shadow:0 4px 12px rgba(13,110,253,.15); }
+.patient-card.selected { border-color:#0d6efd; background:rgba(13,110,253,.05); }
+.risk-badge-Bajo    { background:#dcfce7; color:#166534; }
+.risk-badge-Medio   { background:#fef9c3; color:#854d0e; }
+.risk-badge-Alto    { background:#ffedd5; color:#9a3412; }
+.risk-badge-Crítico { background:#fee2e2; color:#991b1b; }
+.estado-mejorando  { color:#16a34a; } .estado-empeorando { color:#dc2626; }
+.estado-estable    { color:#2563eb; } .estado-critico    { color:#991b1b; }
+.estado-alta_medica { color:#7c3aed; }
+.hist-line { border-left:3px solid #e2e8f0; padding-left:1rem; margin-left:.5rem; }
+.hist-dot  { width:12px;height:12px;border-radius:50%;margin-left:-.45rem;flex-shrink:0; }
+#workspace { display:none; }
+.vital-input { max-width:110px; }
+</style>
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-0"><i class="fas fa-stethoscope me-2 text-primary"></i>Consulta Médica</h3>
+    <p class="text-muted mb-0 small mt-1">Consultorio virtual — visualiza pacientes y registra cada visita</p>
+  </div>
+  <div class="d-flex gap-2" id="wsHeaderInfo" style="display:none!important">
+    <span class="badge bg-primary" id="selectedPatientBadge"></span>
+  </div>
+</div>
+
+<div class="row g-3">
+
+  <!-- ── Panel izquierdo: Lista de pacientes ──────────────────────────────── -->
+  <div class="col-lg-4 col-xl-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-transparent py-3 border-bottom">
+        <input type="search" id="searchPaciente" class="form-control form-control-sm shadow-sm"
+               placeholder="🔍 Buscar paciente..." oninput="buscarPacientes()">
+        <div class="d-flex gap-1 mt-2">
+          <select id="filterRiesgo" class="form-select form-select-sm" onchange="buscarPacientes()">
+            <option value="">Todos los riesgos</option>
+            <option value="Crítico">🚨 Crítico</option>
+            <option value="Alto">⚠️ Alto</option>
+            <option value="Medio">🟡 Medio</option>
+            <option value="Bajo">✅ Bajo</option>
+          </select>
+        </div>
+      </div>
+      <div class="card-body p-2" style="max-height:calc(100vh - 260px);overflow-y:auto;" id="patientListContainer">
+        <div class="text-center py-4 text-muted">
+          <div class="spinner-border spinner-border-sm mb-2"></div><br>
+          <small>Cargando pacientes...</small>
+        </div>
+      </div>
+      <div class="card-footer py-2 text-center">
+        <small class="text-muted" id="patientCount">—</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Panel derecho: Workspace ─────────────────────────────────────────── -->
+  <div class="col-lg-8 col-xl-9">
+
+    <!-- Estado inicial: ningún paciente seleccionado -->
+    <div id="noSelection" class="card border-0 shadow-sm text-center py-5">
+      <i class="fas fa-user-md text-muted mb-3" style="font-size:3rem;opacity:.3"></i>
+      <h5 class="text-muted">Selecciona un paciente</h5>
+      <p class="text-muted small">Haz clic en un paciente de la lista para ver su expediente clínico y registrar una consulta.</p>
+    </div>
+
+    <!-- Workspace del paciente seleccionado -->
+    <div id="workspace">
+
+      <!-- Cabecera del paciente -->
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body py-3">
+          <div class="d-flex align-items-center gap-3 flex-wrap">
+            <div class="bg-primary bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+                 style="width:52px;height:52px">
+              <i class="fas fa-user-injured text-primary fs-5"></i>
+            </div>
+            <div class="flex-grow-1">
+              <h5 class="fw-bold mb-0" id="pNombre"></h5>
+              <div class="text-muted small d-flex flex-wrap gap-2 mt-1">
+                <span><i class="bi bi-person me-1"></i><span id="pEdad"></span> años</span>
+                <span><i class="bi bi-gender-ambiguous me-1"></i><span id="pSexo"></span></span>
+                <span><i class="bi bi-card-text me-1"></i>ID <span id="pId"></span></span>
+              </div>
+            </div>
+            <div class="text-end">
+              <span class="badge px-3 py-2 rounded-pill fw-semibold" id="pRiesgoBadge" style="font-size:.85rem"></span>
+              <div class="text-muted small mt-1" id="pUltimaConsulta"></div>
+            </div>
+          </div>
+          <!-- Últimos vitales del ETL -->
+          <div id="ultimosVitales" class="row g-2 mt-2 pt-2 border-top"></div>
+        </div>
+      </div>
+
+      <!-- Tabs: Nueva Consulta | Historial -->
+      <ul class="nav nav-pills mb-3 gap-2" id="consultaTabs">
+        <li class="nav-item">
+          <button class="nav-link active" onclick="showTab('tabNueva')">
+            <i class="fas fa-plus-circle me-1"></i>Nueva Consulta
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" onclick="showTab('tabHistorial')" id="tabHistBtn">
+            <i class="fas fa-history me-1"></i>Historial
+            <span class="badge bg-secondary ms-1" id="histCount">0</span>
+          </button>
+        </li>
+      </ul>
+
+      <!-- ── TAB: Nueva Consulta ─────────────────────────────────────────── -->
+      <div id="tabNueva">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-primary text-white fw-bold py-3">
+            <i class="fas fa-notes-medical me-2"></i>Registrar Consulta
+          </div>
+          <div class="card-body p-4">
+            <div class="row g-3">
+
+              <!-- Motivo + Síntomas -->
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Motivo de consulta</label>
+                <input type="text" id="cMotivo" class="form-control"
+                       placeholder="Ej: Control mensual, dolor torácico...">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Fecha de consulta</label>
+                <input type="datetime-local" id="cFecha" class="form-control">
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold">Síntomas actuales</label>
+                <textarea id="cSintomas" class="form-control" rows="2"
+                          placeholder="Describe los síntomas que refiere el paciente..."></textarea>
+              </div>
+
+              <!-- Signos vitales -->
+              <div class="col-12">
+                <h6 class="fw-bold text-primary mb-2 mt-1">
+                  <i class="bi bi-heart-pulse me-1"></i>Signos Vitales (opcional)
+                </h6>
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small fw-semibold">Peso (kg)</label>
+                <input type="number" step="0.1" id="cPeso" class="form-control vital-input" placeholder="72.5">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small fw-semibold">Temperatura (°C)</label>
+                <input type="number" step="0.1" id="cTemp" class="form-control vital-input" placeholder="36.5">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small fw-semibold">P. Sistólica</label>
+                <input type="number" id="cPSist" class="form-control vital-input" placeholder="120">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small fw-semibold">P. Diastólica</label>
+                <input type="number" id="cPDias" class="form-control vital-input" placeholder="80">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small fw-semibold">Frec. Cardíaca</label>
+                <input type="number" id="cFC" class="form-control vital-input" placeholder="72">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small fw-semibold">Sat. O₂ (%)</label>
+                <input type="number" step="0.1" id="cSatO2" class="form-control vital-input" placeholder="98">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small fw-semibold">Glucosa (mg/dL)</label>
+                <input type="number" step="0.1" id="cGlucosa" class="form-control vital-input" placeholder="98">
+              </div>
+
+              <!-- Diagnóstico y tratamiento -->
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Diagnóstico</label>
+                <textarea id="cDiag" class="form-control" rows="2"
+                          placeholder="Diagnóstico de esta consulta..."></textarea>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Tratamiento indicado</label>
+                <textarea id="cTratamiento" class="form-control" rows="2"
+                          placeholder="Medicamentos, dosis, indicaciones..."></textarea>
+              </div>
+
+              <!-- Estado general -->
+              <div class="col-12">
+                <label class="form-label fw-semibold">Estado general del paciente</label>
+                <div class="d-flex flex-wrap gap-2">
+                  <button type="button" class="btn btn-outline-success estado-btn" data-val="mejorando"
+                          onclick="selEstado(this)">📈 Mejorando</button>
+                  <button type="button" class="btn btn-outline-primary estado-btn" data-val="estable"
+                          onclick="selEstado(this)">➡️ Estable</button>
+                  <button type="button" class="btn btn-outline-warning estado-btn" data-val="empeorando"
+                          onclick="selEstado(this)">📉 Empeorando</button>
+                  <button type="button" class="btn btn-outline-danger estado-btn" data-val="critico"
+                          onclick="selEstado(this)">🚨 Crítico</button>
+                  <button type="button" class="btn btn-outline-secondary estado-btn" data-val="alta_medica"
+                          onclick="selEstado(this)">✅ Alta Médica</button>
+                </div>
+                <input type="hidden" id="cEstado" value="estable">
+              </div>
+
+              <!-- Condición especial + embarazo -->
+              <div class="col-md-7">
+                <label class="form-label fw-semibold">Condición / Tratamiento activo</label>
+                <input type="text" id="cCondicion" class="form-control"
+                       placeholder="Ej: Tratamiento poliquístico 3 meses, Quimio ciclo 2...">
+              </div>
+              <div class="col-md-5">
+                <label class="form-label fw-semibold">Próxima cita</label>
+                <input type="date" id="cProximaCita" class="form-control">
+              </div>
+
+              <!-- Embarazo toggle -->
+              <div class="col-12">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="cEmbarazo"
+                         onchange="toggleEmbarazo(this)">
+                  <label class="form-check-label fw-semibold" for="cEmbarazo">
+                    🤰 Paciente en embarazo
+                  </label>
+                </div>
+                <div id="semanaEmbarazoDiv" class="mt-2 d-none">
+                  <label class="form-label small fw-semibold">Semana de gestación</label>
+                  <div class="input-group" style="max-width:200px">
+                    <input type="number" id="cSemanaEmbarazo" class="form-control" min="1" max="42" placeholder="12">
+                    <span class="input-group-text">semana</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Observaciones -->
+              <div class="col-12">
+                <label class="form-label fw-semibold">Observaciones adicionales</label>
+                <textarea id="cObservaciones" class="form-control" rows="2"
+                          placeholder="Notas adicionales, indicaciones para próxima visita..."></textarea>
+              </div>
+
+            </div><!-- row -->
+          </div><!-- card-body -->
+          <div class="card-footer bg-transparent d-flex justify-content-between align-items-center py-3">
+            <small class="text-muted"><i class="bi bi-shield-lock me-1"></i>Consulta registrada bajo tu usuario</small>
+            <button class="btn btn-primary px-4 shadow-sm" onclick="guardarConsulta()" id="btnGuardar">
+              <i class="fas fa-save me-2"></i>Guardar Consulta
+            </button>
+          </div>
+        </div>
+      </div><!-- tabNueva -->
+
+      <!-- ── TAB: Historial ─────────────────────────────────────────────── -->
+      <div id="tabHistorial" style="display:none">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-transparent fw-bold py-3">
+            <i class="fas fa-history me-2 text-primary"></i>Historial de Consultas
+          </div>
+          <div class="card-body p-3" id="historialContent">
+            <div class="text-center py-3 text-muted"><small>Cargando historial...</small></div>
+          </div>
+        </div>
+      </div><!-- tabHistorial -->
+
+    </div><!-- workspace -->
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+// ── Estado global ─────────────────────────────────────────────────────────────
+let allPacientes = [];
+let selectedPaciente = null;
+let estadoSeleccionado = 'estable';
+
+// ── Cargar lista de pacientes ─────────────────────────────────────────────────
+async function cargarPacientes() {
+  try {
+    const r = await fetch('/api/pacientes/?page_size=500', { headers: authHeaders() });
+    const d = await r.json();
+    allPacientes = d.results || d || [];
+    renderPatientList(allPacientes);
+  } catch(e) {
+    document.getElementById('patientListContainer').innerHTML =
+      '<div class="text-center py-3 text-danger small"><i class="bi bi-wifi-off me-1"></i>Error cargando pacientes</div>';
+  }
+}
+
+function renderPatientList(lista) {
+  const el = document.getElementById('patientListContainer');
+  document.getElementById('patientCount').textContent = `${lista.length} paciente(s)`;
+  if (!lista.length) {
+    el.innerHTML = '<div class="text-center py-4 text-muted small"><i class="bi bi-person-x fs-3 d-block mb-2 opacity-50"></i>Sin pacientes registrados.<br>Pide al administrador que ejecute el ETL.</div>';
+    return;
+  }
+  el.innerHTML = lista.map(p => {
+    const reg  = p.registros?.[0] || {};
+    const riesgo = reg.riesgo_enfermedad || '—';
+    const colors = { 'Bajo':'success','Medio':'warning','Alto':'orange','Crítico':'danger' };
+    const col    = colors[riesgo] || 'secondary';
+    return `
+    <div class="patient-card card border-0 rounded-3 p-2 mb-1 ${selectedPaciente?.id === p.id ? 'selected' : ''}"
+         id="pcard-${p.id}" onclick="selectPaciente(${p.id})">
+      <div class="d-flex align-items-center gap-2">
+        <div class="bg-${col} bg-opacity-10 rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+             style="width:36px;height:36px">
+          <i class="bi bi-person text-${col}"></i>
+        </div>
+        <div class="flex-grow-1 overflow-hidden">
+          <div class="fw-semibold small text-truncate">${p.nombres} ${p.apellidos}</div>
+          <div class="text-muted" style="font-size:.75rem">${p.edad} años · ${p.sexo === 'M' ? '♂' : '♀'}
+            <span class="badge bg-${col} bg-opacity-15 text-${col} ms-1" style="font-size:.65rem">${riesgo}</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function buscarPacientes() {
+  const q  = document.getElementById('searchPaciente').value.toLowerCase();
+  const r  = document.getElementById('filterRiesgo').value;
+  const filtered = allPacientes.filter(p => {
+    const nombre = `${p.nombres} ${p.apellidos} ${p.cedula || ''} ${p.id_paciente_original}`.toLowerCase();
+    const riesgo = p.registros?.[0]?.riesgo_enfermedad || '';
+    return (!q || nombre.includes(q)) && (!r || riesgo === r);
+  });
+  renderPatientList(filtered);
+}
+
+// ── Seleccionar paciente ──────────────────────────────────────────────────────
+async function selectPaciente(id) {
+  selectedPaciente = allPacientes.find(p => p.id === id);
+  if (!selectedPaciente) return;
+
+  // Highlight card
+  document.querySelectorAll('.patient-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById(`pcard-${id}`)?.classList.add('selected');
+
+  // Show workspace
+  document.getElementById('noSelection').style.display = 'none';
+  document.getElementById('workspace').style.display = '';
+
+  // Fill header
+  document.getElementById('pNombre').textContent  = `${selectedPaciente.nombres} ${selectedPaciente.apellidos}`;
+  document.getElementById('pEdad').textContent    = selectedPaciente.edad;
+  document.getElementById('pSexo').textContent    = selectedPaciente.sexo === 'M' ? 'Masculino' : 'Femenino';
+  document.getElementById('pId').textContent      = selectedPaciente.id_paciente_original;
+
+  const reg    = selectedPaciente.registros?.[0] || {};
+  const riesgo = reg.riesgo_enfermedad || 'N/D';
+  const rClasses = { 'Bajo':'risk-badge-Bajo','Medio':'risk-badge-Medio',
+                     'Alto':'risk-badge-Alto','Crítico':'risk-badge-Crítico' };
+  const badge = document.getElementById('pRiesgoBadge');
+  badge.textContent = `Riesgo: ${riesgo}`;
+  badge.className   = `badge px-3 py-2 rounded-pill fw-semibold ${rClasses[riesgo] || ''}`;
+
+  // Últimos vitales del ETL
+  const vitals = document.getElementById('ultimosVitales');
+  if (reg.imc || reg.glucosa || reg.presion_sistolica) {
+    vitals.innerHTML = [
+      reg.imc           ? `<div class="col-auto"><span class="badge bg-body-secondary text-body">IMC: ${parseFloat(reg.imc).toFixed(1)} ${reg.clasificacion_imc ? `(${reg.clasificacion_imc})` : ''}</span></div>` : '',
+      reg.glucosa       ? `<div class="col-auto"><span class="badge bg-body-secondary text-body">Glucosa: ${reg.glucosa} mg/dL</span></div>` : '',
+      reg.presion_sistolica ? `<div class="col-auto"><span class="badge bg-body-secondary text-body">PA: ${reg.presion_sistolica}/${reg.presion_diastolica} mmHg</span></div>` : '',
+      reg.temperatura   ? `<div class="col-auto"><span class="badge bg-body-secondary text-body">Temp: ${reg.temperatura}°C</span></div>` : '',
+    ].join('');
+  } else {
+    vitals.innerHTML = '';
+  }
+
+  // Load consultation history
+  await cargarHistorial(id);
+
+  // Set fecha default
+  const ahora = new Date();
+  ahora.setMinutes(ahora.getMinutes() - ahora.getTimezoneOffset());
+  document.getElementById('cFecha').value = ahora.toISOString().slice(0,16);
+
+  // Reset form
+  resetConsultaForm();
+  showTab('tabNueva');
+}
+
+// ── Historial de consultas ────────────────────────────────────────────────────
+async function cargarHistorial(pacienteId) {
+  const el = document.getElementById('historialContent');
+  try {
+    const r = await fetch(`/api/etl/consultas/?paciente=${pacienteId}`, { headers: authHeaders() });
+    const d = await r.json();
+    const consultas = d.results || d || [];
+
+    document.getElementById('histCount').textContent = consultas.length;
+    document.getElementById('pUltimaConsulta').textContent =
+      consultas.length ? `Última visita: ${new Date(consultas[0].fecha_consulta).toLocaleDateString('es-CO')}` : 'Sin consultas previas';
+
+    if (!consultas.length) {
+      el.innerHTML = '<div class="text-center py-4 text-muted"><i class="fas fa-notes-medical fa-2x mb-2 opacity-30"></i><br><small>Sin consultas registradas.<br>Registra la primera desde la pestaña Nueva Consulta.</small></div>';
+      return;
+    }
+
+    const estadoColor = { mejorando:'success',estable:'primary',empeorando:'warning',critico:'danger',alta_medica:'secondary' };
+    const estadoIcon  = { mejorando:'📈',estable:'➡️',empeorando:'📉',critico:'🚨',alta_medica:'✅' };
+
+    el.innerHTML = `<div class="hist-line">` + consultas.map((c, i) => `
+    <div class="d-flex gap-2 mb-3">
+      <div class="hist-dot mt-1 bg-${estadoColor[c.estado_general] || 'secondary'}"></div>
+      <div class="flex-grow-1">
+        <div class="card border-0 bg-body-secondary rounded-3 p-3">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-1 mb-2">
+            <div>
+              <span class="fw-bold small">${new Date(c.fecha_consulta).toLocaleDateString('es-CO',{day:'2-digit',month:'short',year:'numeric'})}</span>
+              <span class="badge bg-${estadoColor[c.estado_general] || 'secondary'} ms-2" style="font-size:.7rem">
+                ${estadoIcon[c.estado_general] || ''} ${c.estado_general}
+              </span>
+            </div>
+            <small class="text-muted">${c.medico_nombre || 'Médico'}</small>
+          </div>
+          ${c.motivo_consulta ? `<div class="small"><strong>Motivo:</strong> ${c.motivo_consulta}</div>` : ''}
+          ${c.sintomas_actuales ? `<div class="small mt-1"><strong>Síntomas:</strong> ${c.sintomas_actuales}</div>` : ''}
+          ${c.diagnostico ? `<div class="small mt-1"><strong>Diagnóstico:</strong> ${c.diagnostico}</div>` : ''}
+          ${c.tratamiento ? `<div class="small mt-1 text-success"><strong>Tratamiento:</strong> ${c.tratamiento}</div>` : ''}
+          ${c.condicion_especial ? `<div class="small mt-1 text-info"><strong>Condición activa:</strong> ${c.condicion_especial}</div>` : ''}
+          ${c.en_embarazo ? `<div class="small mt-1 text-danger">🤰 Embarazada ${c.semana_embarazo ? `— Semana ${c.semana_embarazo}` : ''}</div>` : ''}
+          ${c.proxima_cita ? `<div class="small mt-1 text-primary"><i class="bi bi-calendar me-1"></i>Próxima cita: ${new Date(c.proxima_cita + 'T00:00').toLocaleDateString('es-CO')}</div>` : ''}
+          <!-- Mini vitals -->
+          ${(c.presion_sistolica || c.temperatura || c.glucosa) ? `
+          <div class="d-flex flex-wrap gap-1 mt-2">
+            ${c.presion_sistolica ? `<span class="badge bg-danger bg-opacity-10 text-danger" style="font-size:.7rem">PA: ${c.presion_sistolica}/${c.presion_diastolica}</span>` : ''}
+            ${c.temperatura ? `<span class="badge bg-warning bg-opacity-10 text-warning" style="font-size:.7rem">T: ${c.temperatura}°C</span>` : ''}
+            ${c.glucosa ? `<span class="badge bg-info bg-opacity-10 text-info" style="font-size:.7rem">Glucosa: ${c.glucosa}</span>` : ''}
+            ${c.peso ? `<span class="badge bg-secondary bg-opacity-10 text-secondary" style="font-size:.7rem">Peso: ${c.peso}kg</span>` : ''}
+          </div>` : ''}
+          ${c.observaciones ? `<div class="small mt-1 text-muted fst-italic">"${c.observaciones}"</div>` : ''}
+        </div>
+      </div>
+    </div>`).join('') + `</div>`;
+  } catch(e) {
+    el.innerHTML = '<div class="text-danger small p-3">Error cargando historial</div>';
+  }
+}
+
+// ── Guardar consulta ──────────────────────────────────────────────────────────
+async function guardarConsulta() {
+  if (!selectedPaciente) return;
+  const btn  = document.getElementById('btnGuardar');
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Guardando...';
+  btn.disabled = true;
+
+  const fn = v => v || null;
+  const payload = {
+    paciente:           selectedPaciente.id,
+    fecha_consulta:     document.getElementById('cFecha').value || new Date().toISOString(),
+    motivo_consulta:    document.getElementById('cMotivo').value.trim(),
+    sintomas_actuales:  document.getElementById('cSintomas').value.trim(),
+    diagnostico:        document.getElementById('cDiag').value.trim(),
+    tratamiento:        document.getElementById('cTratamiento').value.trim(),
+    observaciones:      document.getElementById('cObservaciones').value.trim(),
+    estado_general:     document.getElementById('cEstado').value || 'estable',
+    condicion_especial: document.getElementById('cCondicion').value.trim(),
+    proxima_cita:       document.getElementById('cProximaCita').value || null,
+    en_embarazo:        document.getElementById('cEmbarazo').checked,
+    semana_embarazo:    fn(document.getElementById('cSemanaEmbarazo').value),
+    peso:               fn(document.getElementById('cPeso').value),
+    temperatura:        fn(document.getElementById('cTemp').value),
+    presion_sistolica:  fn(document.getElementById('cPSist').value),
+    presion_diastolica: fn(document.getElementById('cPDias').value),
+    frecuencia_cardiaca: fn(document.getElementById('cFC').value),
+    saturacion_oxigeno: fn(document.getElementById('cSatO2').value),
+    glucosa:            fn(document.getElementById('cGlucosa').value),
+  };
+
+  try {
+    const r = await fetch('/api/etl/consultas/', {
+      method:  'POST',
+      headers: authHeaders(),
+      body:    JSON.stringify(payload),
+    });
+    if (!r.ok) { const e = await r.json(); throw new Error(JSON.stringify(e)); }
+    // Success
+    showToast('✅ Consulta registrada exitosamente', 'success');
+    resetConsultaForm();
+    await cargarHistorial(selectedPaciente.id);
+    showTab('tabHistorial');
+  } catch(e) {
+    showToast('❌ Error al guardar: ' + e.message, 'danger');
+  } finally {
+    btn.innerHTML = orig; btn.disabled = false;
+  }
+}
+
+// ── Helpers UI ────────────────────────────────────────────────────────────────
+function showTab(tab) {
+  ['tabNueva','tabHistorial'].forEach(t => {
+    document.getElementById(t).style.display = t === tab ? '' : 'none';
+  });
+  document.querySelectorAll('#consultaTabs .nav-link').forEach((btn, i) => {
+    btn.classList.toggle('active', (i === 0 && tab === 'tabNueva') || (i === 1 && tab === 'tabHistorial'));
+  });
+}
+
+function selEstado(btn) {
+  document.querySelectorAll('.estado-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  estadoSeleccionado = btn.dataset.val;
+  document.getElementById('cEstado').value = estadoSeleccionado;
+}
+
+function toggleEmbarazo(chk) {
+  document.getElementById('semanaEmbarazoDiv').classList.toggle('d-none', !chk.checked);
+}
+
+function resetConsultaForm() {
+  ['cMotivo','cSintomas','cDiag','cTratamiento','cObservaciones','cCondicion',
+   'cPeso','cTemp','cPSist','cPDias','cFC','cSatO2','cGlucosa','cSemanaEmbarazo'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('cProximaCita').value = '';
+  document.getElementById('cEmbarazo').checked = false;
+  document.getElementById('semanaEmbarazoDiv').classList.add('d-none');
+  document.getElementById('cEstado').value = 'estable';
+  estadoSeleccionado = 'estable';
+  document.querySelectorAll('.estado-btn').forEach(b => b.classList.remove('active'));
+  const ahora = new Date();
+  ahora.setMinutes(ahora.getMinutes() - ahora.getTimezoneOffset());
+  document.getElementById('cFecha').value = ahora.toISOString().slice(0,16);
+}
+
+function showToast(msg, type='info') {
+  const id = 'toast_' + Date.now();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1100">
+      <div id="${id}" class="toast align-items-center text-bg-${type} border-0 show" role="alert">
+        <div class="d-flex">
+          <div class="toast-body fw-semibold">${msg}</div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+      </div>
+    </div>`);
+  setTimeout(() => document.getElementById(id)?.closest('.position-fixed')?.remove(), 4000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', cargarPacientes);
+</script>
+{% endblock %}

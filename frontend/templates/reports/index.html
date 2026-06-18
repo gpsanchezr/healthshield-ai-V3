@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Reportes — HealthShield AI{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h3 class="fw-bold mb-0"><i class="bi bi-file-earmark-bar-graph me-2 text-primary"></i>Exportación de Reportes</h3>
+    <small class="text-muted">Descarga los datos clínicos en distintos formatos para uso externo</small>
+  </div>
+  <span class="badge bg-warning text-dark px-3 py-2">Solo Analista / Administrador</span>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center p-4 h-100">
+      <i class="bi bi-file-earmark-pdf-fill text-danger" style="font-size:3rem"></i>
+      <h5 class="fw-bold mt-3">Reporte PDF Clínico</h5>
+      <p class="text-muted small">Resumen ejecutivo con KPIs, tabla de pacientes y análisis de riesgos. Formato profesional con logo HealthShield AI.</p>
+      <button class="btn btn-danger mt-auto" onclick="descargar('pdf')">
+        <i class="bi bi-download me-2"></i>Descargar PDF
+      </button>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center p-4 h-100">
+      <i class="bi bi-file-earmark-excel-fill text-success" style="font-size:3rem"></i>
+      <h5 class="fw-bold mt-3">Exportar Excel</h5>
+      <p class="text-muted small">Todos los registros clínicos con formato de colores por nivel de riesgo. Listo para análisis en Excel o Google Sheets.</p>
+      <button class="btn btn-success mt-auto" onclick="descargar('excel')">
+        <i class="bi bi-download me-2"></i>Descargar Excel
+      </button>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center p-4 h-100">
+      <i class="bi bi-filetype-csv text-info" style="font-size:3rem"></i>
+      <h5 class="fw-bold mt-3">Exportar CSV</h5>
+      <p class="text-muted small">Dataset limpio en formato CSV estándar. Ideal para importar en otras herramientas de análisis o sistemas externos.</p>
+      <button class="btn btn-info text-white mt-auto" onclick="descargar('csv')">
+        <i class="bi bi-download me-2"></i>Descargar CSV
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Vista previa de estadísticas -->
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-transparent fw-bold">
+    <i class="bi bi-eye me-2 text-primary"></i>Vista Previa del Reporte — KPIs del Sistema
+  </div>
+  <div class="card-body">
+    <div id="reportPreview" class="row g-3">
+      <div class="col-12 text-center text-muted py-3"><div class="spinner-border spinner-border-sm"></div> Cargando...</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function descargar(tipo) {
+  // FIX: reports need JWT auth header - use fetch + blob approach
+  const url = `/api/reportes/${tipo}/`;
+  try {
+    const r = await fetch(url, {headers: authHeaders()});
+    if (!r.ok) { alert('Error al generar el reporte. Asegúrate de tener permisos.'); return; }
+    const blob = await r.blob();
+    const ext = tipo === 'pdf' ? 'pdf' : tipo === 'excel' ? 'xlsx' : 'csv';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `healthshield_reporte_${new Date().toISOString().slice(0,10)}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch(e) { alert('Error de conexión al generar el reporte.'); }
+}
+
+async function loadPreview() {
+  try {
+    const r = await fetch('/api/dashboard/kpis/', {headers: authHeaders()});
+    const d = await r.json();
+    const k = d.kpis || {};
+    document.getElementById('reportPreview').innerHTML = `
+      <div class="col-6 col-md-2"><div class="text-center p-3 bg-primary bg-opacity-10 rounded-3">
+        <h4 class="fw-bold text-primary mb-0">${(k.total_registros||0).toLocaleString()}</h4>
+        <small class="text-muted">Total Pacientes</small></div></div>
+      <div class="col-6 col-md-2"><div class="text-center p-3 bg-danger bg-opacity-10 rounded-3">
+        <h4 class="fw-bold text-danger mb-0">${k.pacientes_criticos||0}</h4>
+        <small class="text-muted">Críticos</small></div></div>
+      <div class="col-6 col-md-2"><div class="text-center p-3 bg-warning bg-opacity-10 rounded-3">
+        <h4 class="fw-bold text-warning mb-0">${k.pacientes_hipertensos||0}</h4>
+        <small class="text-muted">Hipertensos</small></div></div>
+      <div class="col-6 col-md-2"><div class="text-center p-3 bg-info bg-opacity-10 rounded-3">
+        <h4 class="fw-bold text-info mb-0">${k.pacientes_diabeticos||0}</h4>
+        <small class="text-muted">Diabéticos</small></div></div>
+      <div class="col-6 col-md-2"><div class="text-center p-3 bg-success bg-opacity-10 rounded-3">
+        <h4 class="fw-bold text-success mb-0">${k.pacientes_fumadores||0}</h4>
+        <small class="text-muted">Fumadores</small></div></div>
+      <div class="col-6 col-md-2"><div class="text-center p-3 bg-secondary bg-opacity-10 rounded-3">
+        <h4 class="fw-bold text-secondary mb-0">${k.promedio_glucosa||'—'}</h4>
+        <small class="text-muted">Glucosa Prom.</small></div></div>
+    `;
+  } catch(e) {}
+}
+loadPreview();
+</script>
+{% endblock %}

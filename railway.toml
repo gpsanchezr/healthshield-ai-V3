@@ -1,0 +1,13 @@
+# HealthShield AI — Despliegue en Railway.app
+# railway up  (instala CLI: npm i -g @railway/cli)
+# O conecta tu repo en https://railway.app/new
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "pip install -r backend/requirements.txt && cd backend && python manage.py migrate --noinput && python manage.py collectstatic --noinput"
+
+[deploy]
+startCommand = "cd backend && daphne -b 0.0.0.0 -p $PORT config.asgi:application"
+healthcheckPath = "/api/schema/"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

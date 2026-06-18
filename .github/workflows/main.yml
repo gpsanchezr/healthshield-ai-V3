@@ -1,0 +1,118 @@
+name: HealthShield AI — CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Tests unitarios (sin BD) ──────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests (ETL + ML + Validators)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Tests ETL + ML (sin BD)
+        run: python3 tests/run_tests.py
+
+      - name: Tests Loaders + Validators
+        run: python3 tests/test_loaders_reports.py
+
+  # ── Tests de integración API (con SQLite en memoria) ──────────────────────
+  integration-tests:
+    name: Integration Tests (API)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Tests API con Django TestClient
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.development
+          SECRET_KEY: ci-test-secret-key-not-for-production
+        run: |
+          cd backend
+          python manage.py migrate --noinput
+          cd ..
+          python3 tests/test_api.py
+
+  # ── Calidad de código ─────────────────────────────────────────────────────
+  code-quality:
+    name: Code Quality (Flake8 + Syntax)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar flake8
+        run: pip install flake8
+
+      - name: Verificar sintaxis Python
+        run: |
+          python3 -c "
+          import ast, os, sys
+          errors = []
+          for root, dirs, files in os.walk('backend'):
+              dirs[:] = [d for d in dirs if d not in ['__pycache__', 'migrations']]
+              for f in files:
+                  if f.endswith('.py'):
+                      p = os.path.join(root, f)
+                      try: ast.parse(open(p).read())
+                      except SyntaxError as e: errors.append(f'{p}:{e.lineno}: {e.msg}')
+          if errors:
+              for e in errors: print('SYNTAX ERROR:', e)
+              sys.exit(1)
+          else:
+              print(f'✅ Todos los archivos Python sin errores de sintaxis')
+          "
+
+      - name: Flake8 (estilo de código)
+        run: |
+          cd backend
+          flake8 apps/ \
+            --max-line-length=120 \
+            --exclude=migrations,__pycache__ \
+            --ignore=E501,W503,E302,W292 \
+            --count \
+            --statistics || true
+
+  # ── Build Docker (verifica que el Dockerfile es válido) ──────────────────
+  docker-build:
+    name: Docker Build Validation
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t healthshield-ai:test -f docker/Dockerfile .
+          echo "✅ Docker image construida correctamente"
