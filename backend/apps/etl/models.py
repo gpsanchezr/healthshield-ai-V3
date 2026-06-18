@@ -19,6 +19,59 @@ class Paciente(models.Model):
         return f"{self.nombres} {self.apellidos} (ID {self.id_paciente_original})"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# NUEVO (V4.2): Caché del archivo real subido para ETL
+# ─────────────────────────────────────────────────────────────────────────────
+class DatasetCache(models.Model):
+    """
+    Persiste el archivo CSV/Excel real subido por el analista/administrador
+    para que pueda "Reutilizarse" sin tener que volver a seleccionarlo desde
+    el explorador de archivos cada vez.
+
+    CORRECCIÓN CRÍTICA V4.2:
+    Antes, el archivo subido se guardaba en un tempfile y se BORRABA
+    inmediatamente después de procesarlo (ver versiones anteriores de
+    RunETLView). El botón "Reutilizar" que ya existía en el frontend, al no
+    tener ningún archivo real al que apuntar, terminaba generando datos
+    SIMULADOS (DataSimulator) en vez de reprocesar el dataset real. Esta
+    tabla resuelve ese problema persistiendo el archivo en
+    MEDIA_ROOT/etl_cache/.
+
+    También sirve como evidencia auditable del proceso ETL (uno de los
+    entregables del reto: "Evidencias Proceso ETL").
+    """
+    archivo               = models.FileField(upload_to='etl_cache/%Y/%m/')
+    nombre_original       = models.CharField(max_length=255)
+    tamaño_bytes          = models.PositiveIntegerField(default=0)
+    registros_detectados  = models.PositiveIntegerField(default=0)
+    usuario               = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='datasets_subidos',
+    )
+    fecha_subida          = models.DateTimeField(auto_now_add=True)
+    # Sólo un registro puede estar "activo" (el que se reutiliza) a la vez.
+    activo                = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ['-fecha_subida']
+        verbose_name = 'Dataset en caché (ETL)'
+        verbose_name_plural = 'Datasets en caché (ETL)'
+
+    def __str__(self):
+        return f"{self.nombre_original} — {self.fecha_subida:%d/%m/%Y %H:%M}"
+
+    def marcar_como_activo(self):
+        """Desactiva cualquier otro caché y marca este como el vigente."""
+        DatasetCache.objects.exclude(pk=self.pk).update(activo=False)
+        self.activo = True
+        self.save(update_fields=['activo'])
+
+    @property
+    def tamaño_legible(self) -> str:
+        kb = self.tamaño_bytes / 1024
+        return f"{kb:.0f} KB" if kb < 1024 else f"{kb / 1024:.1f} MB"
+
+
 class EjecucionETL(models.Model):
     usuario              = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     tipo                 = models.CharField(max_length=20, default='manual')
@@ -31,6 +84,12 @@ class EjecucionETL(models.Model):
     fecha_fin            = models.DateTimeField(null=True, blank=True)
     # ← Cache: path del archivo fuente para "usar anterior"
     archivo_fuente       = models.CharField(max_length=500, blank=True, default='')
+    # NUEVO V4.2: referencia al archivo real cacheado que originó esta ejecución
+    # (None para ejecuciones de tipo 'simulacion' que no parten de un archivo)
+    dataset_cache        = models.ForeignKey(
+        DatasetCache, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='ejecuciones',
+    )
 
     class Meta:
         ordering = ['-fecha_inicio']
@@ -98,7 +157,7 @@ class Alerta(models.Model):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NUEVO: Consulta Médica — registro clínico de cada visita del doctor al paciente
+# Consulta Médica — registro clínico de cada visita del doctor al paciente
 # ─────────────────────────────────────────────────────────────────────────────
 class ConsultaMedica(models.Model):
     ESTADO_CHOICES = [

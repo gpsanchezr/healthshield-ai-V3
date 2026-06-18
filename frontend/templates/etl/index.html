@@ -10,21 +10,31 @@
     <div class="card border-0 shadow-sm h-100">
       <div class="card-header bg-transparent fw-bold"><i class="bi bi-upload me-2 text-primary"></i>Ejecutar Pipeline ETL</div>
       <div class="card-body">
-        <p class="text-muted small">Sube un archivo CSV o Excel para ejecutar el pipeline completo de limpieza y transformación.</p>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Archivo (CSV o Excel)</label>
-          <input type="file" class="form-control" id="archivoEtl" accept=".csv,.xlsx,.xls">
+        <div id="uploadControls">
+          <p class="text-muted small">Sube un archivo CSV o Excel para ejecutar el pipeline completo de limpieza y transformación.</p>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Archivo (CSV o Excel)</label>
+            <input type="file" class="form-control" id="archivoEtl" accept=".csv,.xlsx,.xls">
+          </div>
+          <button class="btn btn-primary w-100" onclick="runETL()" id="btnEtl">
+            <i class="bi bi-play-circle me-2"></i>Iniciar ETL
+          </button>
         </div>
-        <button class="btn btn-primary w-100" onclick="runETL()" id="btnEtl">
-          <i class="bi bi-play-circle me-2"></i>Iniciar ETL
-        </button>
 
-        <!-- Usar Anterior ETL -->
+        <!-- Vista médico: no puede subir, solo ve qué dataset hay cargado -->
+        <div id="soloLecturaMedico" class="d-none">
+          <p class="text-muted small mb-0">
+            <i class="bi bi-info-circle me-1"></i>
+            Solo Analista o Administrador pueden subir nuevos datasets. Aquí puedes ver cuál está cargado actualmente.
+          </p>
+        </div>
+
+        <!-- Dataset actual / Usar Anterior ETL -->
         <div id="anteriorEtlDiv" class="d-none mt-3">
           <hr class="my-2">
           <div class="d-flex align-items-center justify-content-between gap-2 p-2 rounded-3 bg-body-secondary">
             <div>
-              <div class="fw-semibold small"><i class="bi bi-clock-history me-1 text-success"></i>Último dataset disponible</div>
+              <div class="fw-semibold small"><i class="bi bi-clock-history me-1 text-success"></i>Dataset actual cargado</div>
               <div class="text-muted" style="font-size:.75rem" id="anteriorInfo">Cargando...</div>
             </div>
             <button class="btn btn-outline-success btn-sm flex-shrink-0" onclick="reutilizarETL()" id="btnReusar">
@@ -378,15 +388,22 @@ loadHealthChart();
 </script>
 
 <script>
-// Simulador Live: ocultar completamente para médicos
+// Simulador Live + formulario de carga: ocultar para médicos
 document.addEventListener('DOMContentLoaded', () => {
   const u = JSON.parse(localStorage.getItem('user') || '{}');
   const rol = (u.rol || '').toLowerCase();
 
-  // Si es médico, ocultar toda la tarjeta del simulador
+  // Si es médico: no puede subir archivos ni simular datos.
+  // Se oculta el simulador y el formulario de carga; queda visible
+  // únicamente el panel de solo-lectura con la info del dataset actual
+  // (FIX: antes el médico veía un formulario de carga que solo le daba 403).
   if (rol === 'medico') {
     const sec = document.getElementById('seccionSimulador');
     if (sec) sec.style.display = 'none';
+    const upload = document.getElementById('uploadControls');
+    if (upload) upload.classList.add('d-none');
+    const soloLectura = document.getElementById('soloLecturaMedico');
+    if (soloLectura) soloLectura.classList.remove('d-none');
     return;
   }
 
@@ -397,7 +414,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// ── ETL "Usar anterior" ───────────────────────────────────────────────────────
+// ── ETL "Usar anterior" / Dataset en caché ────────────────────────────────────
+// FIX: esta función existía pero NUNCA se llamaba en ningún lado, por lo que
+// el panel "Dataset actual" jamás aparecía. Se invoca al final de este bloque.
 async function cargarInfoAnterior() {
   try {
     const r = await fetch(`${API}/etl/reutilizar/`, { headers: authHeaders() });
@@ -406,7 +425,11 @@ async function cargarInfoAnterior() {
     if (d.disponible) {
       document.getElementById('anteriorEtlDiv').classList.remove('d-none');
       document.getElementById('anteriorInfo').textContent =
-        `${d.fecha} · ${d.registros_procesados.toLocaleString()} registros · tipo: ${d.tipo}`;
+        `${d.nombre_archivo} · ${d.fecha_subida} · ${Number(d.registros_detectados).toLocaleString()} registros · subido por ${d.subido_por}`;
+      // FIX: el botón "Reutilizar" solo lo puede usar quien puede ejecutar ETL
+      // (analista/administrador). El médico ve la info pero no el botón.
+      const btnReusar = document.getElementById('btnReusar');
+      if (btnReusar) btnReusar.style.display = d.puede_reutilizar ? '' : 'none';
     }
   } catch(e) {}
 }
@@ -420,15 +443,16 @@ async function reutilizarETL() {
       method: 'POST', headers: authHeaders()
     });
     const d = await r.json();
-    if (d.error) throw new Error(d.error);
+    if (!r.ok || d.error) throw new Error(d.error || 'Error al reutilizar ETL');
     document.getElementById('etlResult').classList.remove('d-none');
     document.getElementById('etlResult').innerHTML = `
       <div class="alert alert-success border-0">
         <i class="bi bi-check-circle-fill me-2"></i>
-        <strong>ETL reutilizado:</strong> ${d.registros_cargados || d.mensaje || 'Completado'}<br>
-        <small class="text-muted">Datos regenerados a partir del último pipeline ejecutado.</small>
+        <strong>ETL reutilizado:</strong> ${d.mensaje || 'Completado'}<br>
+        <small class="text-muted">Se reprocesó el archivo real cacheado — no fue necesario volver a subirlo.</small>
       </div>`;
-    loadETLHistory();
+    loadHistorial();          // FIX: antes llamaba a loadETLHistory(), función que no existe
+    cargarInfoAnterior();      // refresca el panel con la ejecución recién reutilizada
   } catch(e) {
     alert('Error al reutilizar ETL: ' + e.message);
   } finally {
@@ -436,5 +460,8 @@ async function reutilizarETL() {
     btn.disabled = false;
   }
 }
+
+// FIX: se llama ahora explícitamente para que el panel se rellene al cargar la página.
+cargarInfoAnterior();
 </script>
 {% endblock %}

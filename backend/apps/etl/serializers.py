@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Paciente, RegistroClinico, EjecucionETL, LogETL, Alerta
+from .models import Paciente, RegistroClinico, EjecucionETL, LogETL, Alerta, DatasetCache
 
 class PacienteSerializer(serializers.ModelSerializer):
     class Meta:
@@ -51,3 +51,15 @@ class ConsultaMedicaSerializer(serializers.ModelSerializer):
 
     def get_paciente_nombre(self, obj):
         return str(obj.paciente)
+
+
+# ─── NUEVO V4.2: DatasetCache — caché del archivo real subido ────────────────
+class DatasetCacheSerializer(serializers.ModelSerializer):
+    usuario_nombre = serializers.CharField(source='usuario.__str__', read_only=True)
+    tamaño_legible = serializers.ReadOnlyField()
+
+    class Meta:
+        model  = DatasetCache
+        fields = ['id', 'nombre_original', 'tamaño_bytes', 'tamaño_legible',
+                  'registros_detectados', 'usuario_nombre', 'fecha_subida', 'activo']
+

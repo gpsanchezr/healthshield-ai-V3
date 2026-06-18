@@ -16,14 +16,17 @@ def run_etl_task(
     source_path: str,
     usuario_id: Optional[int] = None,
     tipo: str = 'manual',
+    dataset_cache_id: Optional[int] = None,
 ) -> dict:
     """
     Ejecuta el pipeline ETL completo de forma asíncrona.
 
     Args:
-        source_path: Ruta al archivo CSV/Excel
-        usuario_id:  ID del usuario que lanzó la tarea
-        tipo:        'manual' | 'simulacion' | 'automatico'
+        source_path:      Ruta al archivo CSV/Excel
+        usuario_id:       ID del usuario que lanzó la tarea
+        tipo:              'manual' | 'simulacion' | 'automatico' | 'reutilizado'
+        dataset_cache_id: NUEVO V4.2 — ID del DatasetCache vinculado a esta
+                            ejecución, para trazabilidad del archivo real usado.
 
     Returns:
         Resultado del ETL con report de calidad
@@ -31,6 +34,7 @@ def run_etl_task(
     self.update_state(state='PROGRESS', meta={'paso': 'Extrayendo datos...', 'progreso': 10})
 
     from apps.etl.pipeline import ETLPipeline
+    from apps.etl.models import DatasetCache
     from apps.authentication.models import UsuarioClinico
 
     usuario = None
@@ -40,10 +44,14 @@ def run_etl_task(
         except UsuarioClinico.DoesNotExist:
             pass
 
+    dataset_cache = None
+    if dataset_cache_id:
+        dataset_cache = DatasetCache.objects.filter(pk=dataset_cache_id).first()
+
     self.update_state(state='PROGRESS', meta={'paso': 'Transformando datos...', 'progreso': 40})
 
     try:
-        pipeline = ETLPipeline(usuario=usuario, tipo=tipo)
+        pipeline = ETLPipeline(usuario=usuario, tipo=tipo, dataset_cache=dataset_cache)
         result   = pipeline.run(source_path)
         self.update_state(state='PROGRESS', meta={'paso': 'Cargando a base de datos...', 'progreso': 90})
         return result
