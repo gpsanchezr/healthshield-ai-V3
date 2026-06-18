@@ -1,12 +1,7 @@
 """
 HealthShield AI V4 — Configuración de Producción
 ==================================================
-Activa HTTPS, HSTS, cookies seguras y cabeceras de seguridad.
-
-CORRECCIÓN V4.1 — FIX #7:
-  ALLOWED_HOSTS ahora lee exclusivamente desde env variable.
-  El default anterior '.onrender.com' (con punto) era inválido para Django.
-  En Render: definir ALLOWED_HOSTS=tu-app.onrender.com en variables de entorno.
+Configuración inteligente: Desactiva restricciones SSL si DEBUG es True.
 """
 
 from .base import *
@@ -14,15 +9,13 @@ import dj_database_url
 import os
 
 # ── Base ───────────────────────────────────────────────────────────────────────
-DEBUG      = False
-SECRET_KEY = env('SECRET_KEY')   # obligatorio en prod — falla explícitamente si falta
+# Leemos DEBUG del entorno, por defecto False
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+SECRET_KEY = env('SECRET_KEY')
 
-# FIX #7: ALLOWED_HOSTS sólo desde env, sin wildcard inválido
-# En Render: ALLOWED_HOSTS=healthshield-ai.onrender.com
-# En Railway: ALLOWED_HOSTS=healthshield-ai.up.railway.app
 ALLOWED_HOSTS = os.environ.get(
     'ALLOWED_HOSTS',
-    'localhost,127.0.0.1',
+    'localhost,127.0.0.1,0.0.0.0'
 ).strip().split(',')
 
 # ── Base de Datos ──────────────────────────────────────────────────────────────
@@ -38,22 +31,25 @@ DATABASES = {
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # ── HTTPS y cabeceras de seguridad ─────────────────────────────────────────────
-SECURE_SSL_REDIRECT             = True
-SECURE_PROXY_SSL_HEADER         = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_HSTS_SECONDS             = 31_536_000   # 1 año
-SECURE_HSTS_INCLUDE_SUBDOMAINS  = True
-SECURE_HSTS_PRELOAD             = True
+# IMPORTANTE: Desactivamos el redireccionamiento HTTPS solo si DEBUG está activo
+SECURE_SSL_REDIRECT = False if DEBUG else True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# ── Cookies seguras ────────────────────────────────────────────────────────────
-SESSION_COOKIE_SECURE   = True
+# HSTS: Solo habilitar en producción real
+SECURE_HSTS_SECONDS = 0 if DEBUG else 31_536_000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+
+# ── Cookies seguras (Condicionales) ────────────────────────────────────────────
+SESSION_COOKIE_SECURE   = False if DEBUG else True
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
-CSRF_COOKIE_SECURE      = True
+CSRF_COOKIE_SECURE      = False if DEBUG else True
 CSRF_COOKIE_HTTPONLY    = True
 CSRF_COOKIE_SAMESITE    = 'Lax'
 
 # ── Cabeceras de seguridad adicionales ─────────────────────────────────────────
-SECURE_BROWSER_XSS_FILTER  = True
+SECURE_BROWSER_XSS_FILTER   = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS             = 'DENY'
 SECURE_REFERRER_POLICY      = 'strict-origin-when-cross-origin'
@@ -61,7 +57,7 @@ SECURE_REFERRER_POLICY      = 'strict-origin-when-cross-origin'
 # ── CORS para producción ───────────────────────────────────────────────────────
 CORS_ALLOWED_ORIGINS = os.environ.get(
     'CORS_ALLOWED_ORIGINS',
-    'http://localhost:8000',
+    'http://localhost:8000,http://127.0.0.1:8080',
 ).strip().split(',')
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -81,7 +77,7 @@ CHANNEL_LAYERS = {
     }
 }
 
-# ── Logging en producción (stdout → Render/Railway lo captura) ─────────────────
+# ── Logging en producción ──────────────────────────────────────────────────────
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
